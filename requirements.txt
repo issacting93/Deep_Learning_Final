@@ -1,0 +1,30 @@
+# Core ML & Deep Learning
+torch
+torchaudio
+torchvision
+transformers
+sentence-transformers
+# CLAP (LAION-AI)
+laion-clap
+
+# Audio Processing
+librosa
+scipy
+soundfile
+tqdm
+
+# Data & Search
+pandas
+numpy
+faiss-cpu
+
+# Optional: GNN (PyTorch Geometric)
+# Note: Install specifically for your torch/cuda/mac version
+# torch-geometric
+
+# Utilities
+requests
+python-dotenv
+ipykernel
+Matplotlib
+seaborn
