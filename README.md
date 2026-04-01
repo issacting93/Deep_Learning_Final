@@ -69,7 +69,7 @@ All plots are saved in `data/processed/` as PNG files.
 
 Each role produces independent outputs that feed into a shared evaluation and fusion system. All new embedding generators should subclass `src/embeddings/base.py:EmbeddingGenerator` and output to `data/processed/`.
 
-### Role 1: Acoustic Similarity (OpenL3/MusicFM Embeddings)
+### Role 1: Acoustic Similarity (OpenL3/MusicFM Embeddings) — Wenny
 
 **Goal**: Build a second embedding space that captures low-level acoustic features (timbre, rhythm, texture) rather than CLAP's high-level semantic features. This enables audio-to-audio retrieval — "find songs that sound like this one".
 
@@ -83,7 +83,7 @@ Each role produces independent outputs that feed into a shared evaluation and fu
 
 **Deliverables**: `src/embeddings/openl3.py`, FAISS index, comparison notebook
 
-### Role 2: Metadata & Semantic Search (Sentence-BERT)
+### Role 2: Lyrics & Semantic Search (Sentence-BERT) — Sid
 
 **Goal**: Build a text-based retrieval view using track metadata. This complements the audio-based views by enabling search over artist names, track titles, genre tags, and descriptive text.
 
@@ -97,7 +97,7 @@ Each role produces independent outputs that feed into a shared evaluation and fu
 
 **Deliverables**: `src/embeddings/sbert.py`, FAISS index, overlap analysis notebook
 
-### Role 3: Graph-based Recommendation (PyTorch Geometric)
+### Role 3: Graph-based Recommendation (PyTorch Geometric) — Issac
 
 **Goal**: Build a heterogeneous graph from FMA metadata and learn structural embeddings that encode relationships between tracks, artists, and genres. This enables recommendation-style retrieval based on connectivity rather than content.
 
@@ -113,7 +113,7 @@ Each role produces independent outputs that feed into a shared evaluation and fu
 
 **Deliverables**: `src/graph/`, trained GNN checkpoint in `models/`, recommendation notebook
 
-### Role 4: Evaluation & Multi-View Fusion
+### Role 4: Evaluation & Multi-View Fusion — Jiayi
 
 **Goal**: Quantitatively evaluate each retrieval view and build a fusion system that combines all views to outperform any single one.
 
@@ -133,7 +133,7 @@ Each role produces independent outputs that feed into a shared evaluation and fu
 
 **Deliverables**: `src/evaluation.py`, `src/fusion.py`, comprehensive evaluation notebook
 
-### Role 5: Fine-tuning & Deep Analysis
+### Role 5: Fine-tuning & Deep Analysis — Helena
 
 **Goal**: Improve the base CLAP model by fine-tuning on FMA data, and conduct deeper analysis of the embedding space to understand model behaviour.
 
@@ -154,10 +154,10 @@ Each role produces independent outputs that feed into a shared evaluation and fu
 ### How the roles connect
 
 ```
-Role 1 (OpenL3) ──────┐
-Role 2 (SBERT) ───────┤
-Role 3 (Graph/GNN) ───┼──→ Role 4 (Evaluation & Fusion) ──→ Final System
-Role 5 (Fine-tuned CLAP)─┘
+Role 1 — Wenny  (OpenL3/Acoustic) ──────┐
+Role 2 — Sid    (Lyrics/SBERT) ─────────┤
+Role 3 — Issac  (Graph/GNN) ────────────┼──→ Role 4 — Jiayi (Evaluation & Fusion) ──→ Final System
+Role 5 — Helena (Fine-tuned CLAP) ──────┘
 ```
 
 Each role produces embeddings and a FAISS index. Role 4 consumes all of them to evaluate and fuse. Role 5 improves the base CLAP view that's already working. All roles can work in parallel — the shared `EmbeddingGenerator` interface and `FaissIndex` wrapper ensure consistency.
