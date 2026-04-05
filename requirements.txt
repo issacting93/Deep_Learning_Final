@@ -28,3 +28,7 @@ python-dotenv
 ipykernel
 Matplotlib
 seaborn
+
+# Server Deployment
+flask
+gunicorn==21.2.0

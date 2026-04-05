@@ -1,0 +1,7 @@
+data/raw/
+data/fma_small/
+venv/
+.git/
+__pycache__/
+*.pyc
+.claude/
