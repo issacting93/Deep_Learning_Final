@@ -40,10 +40,35 @@ The FMA metadata gives us a natural graph: each track belongs to an artist, and 
    - Save to `data/processed/gnn_embeddings.npy` + `gnn_track_ids.npy`
    - Build a FAISS index: `data/processed/gnn_faiss.index`
 
-5. **Analysis**
-   - Which tracks are most central (highest degree, most genre connections)?
-   - Do graph-based recommendations surface tracks that audio-based methods miss?
-   - Visualise the genre subgraph (which genres are most connected?)
+5. **Analysis & Visualizations**
+   We have already generated a comprehensive suite of baseline analyses and GNN visualizations to validate our model. These can be found in `data/processed/` and `role3_graph_issac/`:
+
+   **Initial Exploratory Data Analysis (Baseline)**
+   
+   *Distribution and Variance of raw 512D CLAP acoustic embeddings:*
+   ![PCA Variance](../data/processed/pca_variance.png)
+   ![Embedding Norms](../data/processed/embedding_norms.png)
+
+   *Acoustic distances between different genres based purely on raw audio features:*
+   ![Genre Similarity Heatmap](../data/processed/genre_similarity_heatmap.png)
+
+   *2D projections of the raw CLAP embeddings demonstrating that acoustic features alone are insufficient for genre separation:*
+   ![PCA CLAP Embeddings](../data/processed/pca_clap_embeddings.png)
+   ![t-SNE CLAP Embeddings](../data/processed/tsne_clap_embeddings.png)
+
+   **GNN Graph Analysis**
+   
+   *Structural connectivity of our constructed graph:*
+   ![GNN Degree Distribution](./gnn_degree_distribution.png)
+   
+   *Local graph neighborhood for a specific seed track used for node recommendations:*
+   ![GNN Ego Graph](./gnn_ego_graph.png)
+
+   *Macro-level connections between genres based on artist/track relationships:*
+   ![GNN Genre Subgraph](./gnn_genre_subgraph.png)
+
+   *The definitive validation plot demonstrating our GNN's performance. It shows a side-by-side comparison of the raw CLAP projections vs. the GNN embeddings:*
+   ![GNN vs CLAP t-SNE Comparison](./gnn_tsne_comparison.png)
 
 ## Setup
 

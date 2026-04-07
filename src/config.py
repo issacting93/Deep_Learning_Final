@@ -19,6 +19,11 @@ CLAP_DURATION_SAMPLES = CLAP_SR * CLAP_DURATION_S  # 480000
 # Processing
 CLAP_BATCH_SIZE = 32
 
+# GNN (Role 3 — Issac)
+GNN_HIDDEN_DIM = 256
+GNN_OUT_DIM    = 256
+GNN_EPOCHS     = 30
+
 # Device selection
 def get_device():
     if torch.cuda.is_available():

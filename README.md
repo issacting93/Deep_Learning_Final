@@ -1,4 +1,4 @@
-# Multi-Faceted Music Retrieval
+	 # Multi-Faceted Music Retrieval
 
 A multimodal music retrieval system using the FMA (Free Music Archive) dataset. The system supports retrieval across four "views" of music:
 
@@ -57,9 +57,20 @@ Results are genre-coherent for well-represented genres (Instrumental, Rock, Pop,
 We projected the 7,997 CLAP embeddings into 2D using both t-SNE (with PCA-50 preprocessing, perplexity=30) and PCA, coloured by top genre. Key findings:
 
 - **t-SNE** shows clear genre clustering: Hip-Hop forms a distinct cluster in the upper-left, Rock groups in the left, Instrumental occupies the lower-right, and Electronic scatters across the right side. Folk and International overlap in the center-bottom, which is expected given their acoustic similarity.
+  
+  ![t-SNE CLAP Embeddings](data/processed/tsne_clap_embeddings.png)
+
 - **Genre centroid similarity heatmap** (cosine similarity between mean embeddings of the top 8 genres) reveals that Hip-Hop and Pop are most similar (0.81), Folk and International cluster together (0.80), and Rock and Electronic are the most distinct pair (0.64).
+
+  ![Genre Similarity Heatmap](data/processed/genre_similarity_heatmap.png)
+
 - **PCA variance curve** shows the 512 dimensions are well-utilised — 50 components capture ~85% of variance, indicating the embeddings are rich and non-degenerate.
+
+  ![PCA Variance Curve](data/processed/pca_variance.png)
+
 - **Embedding norms** are exactly 1.0 for all tracks, confirming CLAP outputs are already L2-normalised (consistent with contrastive learning objectives).
+
+  ![Embedding Norms](data/processed/embedding_norms.png)
 
 All plots are saved in `data/processed/` as PNG files.
 
@@ -153,7 +164,7 @@ Each role produces independent outputs that feed into a shared evaluation and fu
 
 ### How the roles connect
 
-```
+```text
 Role 1 — Wenny  (OpenL3/Acoustic) ──────┐
 Role 2 — Sid    (Lyrics/SBERT) ─────────┤
 Role 3 — Issac  (Graph/GNN) ────────────┼──→ Role 4 — Jiayi (Evaluation & Fusion) ──→ Final System
@@ -162,16 +173,33 @@ Role 5 — Helena (Fine-tuned CLAP) ──────┘
 
 Each role produces embeddings and a FAISS index. Role 4 consumes all of them to evaluate and fuse. Role 5 improves the base CLAP view that's already working. All roles can work in parallel — the shared `EmbeddingGenerator` interface and `FaissIndex` wrapper ensure consistency.
 
+*Note: Each role now has its own dedicated directory (e.g., `role1_acoustic_wenny/`) containing role-specific instructions and working files.*
+
 ---
 
 ## Directory Structure
 
-```
+```text
 ├── data/
 │   ├── raw/                  # Downloaded zip files
 │   ├── fma_small/            # 8,000 MP3 audio files (organized by track ID)
 │   ├── fma_metadata/         # tracks.csv, genres.csv, echonest.csv, etc.
 │   └── processed/            # Embeddings, FAISS indices, plots, audit results
+├── models/                   # Pretrained model checkpoints
+├── notebooks/
+│   ├── 01_eda.ipynb                    # Dataset exploration
+│   ├── 02_clap_retrieval_demo.ipynb    # Interactive text-to-music search
+│   └── 03_embedding_visualisation.ipynb # t-SNE, PCA, similarity heatmaps
+├── role1_acoustic_wenny/     # OpenL3 acoustic embeddings project
+├── role2_lyrics_sid/         # Sentence-BERT semantic search project
+├── role3_graph_issac/        # Heterogeneous Graph recommendation project
+├── role4_evaluation_jiayi/   # Multi-view evaluation & fusion project
+├── role5_finetune_helena/    # CLAP fine-tuning and ablation project
+├── scripts/
+│   ├── download_fma.py       # Download and extract FMA dataset
+│   ├── audit_metadata.py     # Audit metadata and cross-reference audio files
+│   ├── generate_clap_embeddings.py   # Generate CLAP embeddings (CLI)
+│   └── build_faiss_index.py  # Build FAISS index from embeddings
 ├── src/
 │   ├── config.py             # Centralized paths, constants, device selection
 │   ├── metadata.py           # FMA metadata loading and filtering
@@ -181,18 +209,8 @@ Each role produces embeddings and a FAISS index. Role 4 consumes all of them to 
 │   │   └── clap.py           # CLAP embedding pipeline (batched, checkpointed)
 │   └── indexing/
 │       └── faiss_index.py    # FAISS index build/save/load/query
-├── scripts/
-│   ├── download_fma.py       # Download and extract FMA dataset
-│   ├── audit_metadata.py     # Audit metadata and cross-reference audio files
-│   ├── generate_clap_embeddings.py   # Generate CLAP embeddings (CLI)
-│   └── build_faiss_index.py  # Build FAISS index from embeddings
-├── notebooks/
-│   ├── 01_eda.ipynb                    # Dataset exploration
-│   ├── 02_clap_retrieval_demo.ipynb    # Interactive text-to-music search
-│   └── 03_embedding_visualisation.ipynb # t-SNE, PCA, similarity heatmaps
-├── models/                   # Pretrained model checkpoints
-├── requirements.txt
-└── README.md
+├── README.md
+└── requirements.txt
 ```
 
 ## Setup
