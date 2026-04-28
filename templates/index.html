@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-View Music Retrieval</title>
+<style>
+  :root {
+    --bg: #f5f5f3;
+    --surface: #ffffff;
+    --surface2: #f0efed;
+    --border: #d8d6d0;
+    --text: #2c2c2c;
+    --text2: #9a9a98;
+    --text3: #bdbdb8;
+    --accent: #4a4a4a;
+    --sbert: #f4b183;
+    --openl3: #a8d8ea;
+    --clap: #c5b4e3;
+    --sbert-dark: #d48a5a;
+    --openl3-dark: #6baec4;
+    --clap-dark: #9681c2;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Header */
+  header {
+    padding: 40px 48px 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+  header h1 {
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--text2);
+    white-space: nowrap;
+  }
+
+  /* Search */
+  .search-wrap {
+    flex: 1;
+    min-width: 240px;
+    max-width: 400px;
+    position: relative;
+  }
+  .search-wrap input {
+    width: 100%;
+    padding: 8px 0;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .search-wrap input::placeholder { color: var(--text3); }
+  .search-wrap input:focus { border-bottom-color: var(--text); }
+  .search-results {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0; right: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    max-height: 360px;
+    overflow-y: auto;
+    z-index: 100;
+    display: none;
+  }
+  .search-results.show { display: block; }
+  .search-item {
+    padding: 10px 14px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--surface2);
+    transition: background 0.12s;
+  }
+  .search-item:last-child { border-bottom: none; }
+  .search-item:hover { background: var(--surface2); }
+  .search-item .title { font-size: 13px; font-weight: 500; }
+  .search-item .artist { color: var(--text2); font-size: 12px; }
+
+  /* Genre badge */
+  .genre-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    text-transform: uppercase;
+  }
+
+  /* Main content area */
+  main { padding: 0 48px 48px; }
+
+  /* Seed / Now playing */
+  .seed-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 24px 28px;
+    margin-bottom: 36px;
+    display: none;
+  }
+  .seed-card.show { display: block; }
+  .seed-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--text3);
+    margin-bottom: 6px;
+  }
+  .seed-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .seed-header .info h2 {
+    font-size: 18px;
+    font-weight: 400;
+    letter-spacing: 0.01em;
+  }
+  .seed-header .info p { color: var(--text2); font-size: 13px; }
+  .seed-card audio {
+    width: 100%;
+    height: 32px;
+    outline: none;
+  }
+
+  /* Browse section */
+  .browse { margin-bottom: 36px; }
+  .browse h3 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--text3);
+    margin-bottom: 16px;
+  }
+  .genre-filters {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .genre-btn {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text2);
+    font-size: 11px;
+    font-family: inherit;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .genre-btn:hover { border-color: var(--text); color: var(--text); }
+  .genre-btn.active {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--surface);
+  }
+  .track-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+  }
+  .track-card {
+    background: var(--surface);
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: background 0.12s;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .track-card:hover { background: var(--surface2); }
+  .track-card .title { font-size: 13px; font-weight: 450; }
+  .track-card .artist { font-size: 11px; color: var(--text2); }
+  .load-more {
+    margin-top: 20px;
+    padding: 7px 20px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text2);
+    cursor: pointer;
+    font-size: 11px;
+    font-family: inherit;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    transition: all 0.12s;
+  }
+  .load-more:hover { border-color: var(--text); color: var(--text); }
+
+  /* Two-panel layout */
+  .panels {
+    display: none;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+  }
+  .panels.show {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+  }
+  @media (max-width: 900px) {
+    .panels.show { grid-template-columns: 1fr; }
+  }
+
+  /* Left panel — fused results */
+  .main-panel {
+    background: var(--surface);
+  }
+  .panel-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--surface2);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .panel-header .view-name {
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--text2);
+  }
+  .panel-header .tag {
+    font-size: 10px;
+    color: var(--text3);
+    letter-spacing: 0.08em;
+  }
+
+  .fused-list { list-style: none; }
+  .fused-item {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--surface2);
+    cursor: pointer;
+    transition: background 0.12s;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: relative;
+  }
+  .fused-item:last-child { border-bottom: none; }
+  .fused-item:hover { background: var(--surface2); }
+  .fused-item.selected { background: var(--surface2); }
+  .fused-item .rank {
+    color: var(--text3);
+    font-size: 11px;
+    font-weight: 400;
+    min-width: 18px;
+  }
+  .fused-item .info { flex: 1; min-width: 0; }
+  .fused-item .title {
+    font-size: 13px;
+    font-weight: 450;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .fused-item .artist {
+    font-size: 11px;
+    color: var(--text2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+  }
+  .fused-item .score-cell {
+    text-align: right;
+    min-width: 50px;
+  }
+  .fused-item .score {
+    font-size: 10px;
+    color: var(--text3);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Mini score bars */
+  .mini-bars {
+    display: flex;
+    gap: 2px;
+    margin-top: 4px;
+    height: 3px;
+  }
+  .mini-bar {
+    height: 3px;
+    border-radius: 1px;
+  }
+
+  /* Right panel — details */
+  .detail-panel {
+    background: var(--surface);
+    overflow-y: auto;
+    max-height: calc(100vh - 200px);
+  }
+  .detail-empty {
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--text3);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+
+  /* Radar chart area */
+  .radar-section {
+    padding: 24px 20px 16px;
+    border-bottom: 1px solid var(--surface2);
+    text-align: center;
+  }
+  .radar-section .detail-track-name {
+    font-size: 14px;
+    font-weight: 450;
+    margin-bottom: 2px;
+  }
+  .radar-section .detail-track-artist {
+    font-size: 12px;
+    color: var(--text2);
+    margin-bottom: 16px;
+  }
+  canvas#radarChart {
+    display: block;
+    margin: 0 auto;
+  }
+  .radar-legend {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 12px;
+  }
+  .radar-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .radar-legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .score-readout {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 14px;
+  }
+  .score-readout-item {
+    text-align: center;
+  }
+  .score-readout-value {
+    font-size: 18px;
+    font-weight: 300;
+    font-variant-numeric: tabular-nums;
+  }
+  .score-readout-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--text3);
+    margin-top: 2px;
+  }
+
+  /* Per-model tabs */
+  .model-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--surface2);
+  }
+  .model-tab {
+    flex: 1;
+    padding: 10px 8px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text3);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.12s;
+    font-family: inherit;
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+  }
+  .model-tab:hover { color: var(--text2); }
+  .model-tab.active {
+    border-bottom-color: currentColor;
+  }
+  .model-tab[data-view="sbert"].active  { color: var(--sbert-dark); border-bottom-color: var(--sbert); }
+  .model-tab[data-view="openl3"].active { color: var(--openl3-dark); border-bottom-color: var(--openl3); }
+  .model-tab[data-view="clap"].active   { color: var(--clap-dark); border-bottom-color: var(--clap); }
+
+  /* Per-model results list */
+  .model-results { list-style: none; }
+  .model-results-item {
+    padding: 8px 20px;
+    border-bottom: 1px solid var(--surface2);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    transition: background 0.12s;
+    position: relative;
+  }
+  .model-results-item:last-child { border-bottom: none; }
+  .model-results-item:hover { background: var(--surface2); }
+  .model-results-item .rank {
+    color: var(--text3);
+    font-size: 10px;
+    min-width: 14px;
+  }
+  .model-results-item .info { flex: 1; min-width: 0; }
+  .model-results-item .title {
+    font-size: 12px;
+    font-weight: 450;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .model-results-item .artist {
+    font-size: 10px;
+    color: var(--text2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .model-results-item .score {
+    font-size: 10px;
+    color: var(--text3);
+    font-variant-numeric: tabular-nums;
+  }
+  .model-results-item::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 2px;
+  }
+  .model-results[data-view="sbert"]  .model-results-item::before { background: var(--sbert); }
+  .model-results[data-view="openl3"] .model-results-item::before { background: var(--openl3); }
+  .model-results[data-view="clap"]   .model-results-item::before { background: var(--clap); }
+
+  /* Nav link back to browse */
+  .back-link {
+    display: inline-block;
+    margin-bottom: 20px;
+    font-size: 11px;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    cursor: pointer;
+    transition: color 0.12s;
+  }
+  .back-link:hover { color: var(--text); }
+
+  /* Loading spinner */
+  .loading {
+    text-align: center;
+    padding: 60px;
+    color: var(--text3);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    display: none;
+  }
+  .loading.show { display: block; }
+  .spinner {
+    width: 20px; height: 20px;
+    border: 1.5px solid var(--border);
+    border-top-color: var(--text2);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Multi-View Music Retrieval</h1>
+  <div class="search-wrap">
+    <input type="text" id="searchInput" placeholder="Search title or artist" autocomplete="off">
+    <div class="search-results" id="searchResults"></div>
+  </div>
+</header>
+
+<main>
+  <!-- Seed track -->
+  <div class="seed-card" id="seedCard">
+    <div class="seed-label">Now playing</div>
+    <div class="seed-header">
+      <div class="info">
+        <h2 id="seedTitle"></h2>
+        <p><span id="seedArtist"></span> &middot; <span class="genre-badge" id="seedGenre"></span></p>
+      </div>
+    </div>
+    <audio id="seedAudio" controls preload="none"></audio>
+  </div>
+
+  <!-- Loading -->
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    Loading recommendations
+  </div>
+
+  <!-- Two-panel: fused list + detail -->
+  <div class="panels" id="panels">
+    <!-- Left: fused recommendations -->
+    <div class="main-panel">
+      <div class="panel-header">
+        <span class="view-name">Fused Recommendations</span>
+        <span class="tag">Reciprocal Rank Fusion</span>
+      </div>
+      <ul class="fused-list" id="fusedList"></ul>
+    </div>
+    <!-- Right: detail panel -->
+    <div class="detail-panel" id="detailPanel">
+      <div class="detail-empty" id="detailEmpty">
+        Select a recommendation<br>to view model scores
+      </div>
+      <div id="detailContent" style="display:none">
+        <div class="radar-section">
+          <div class="detail-track-name" id="detailName"></div>
+          <div class="detail-track-artist" id="detailArtist"></div>
+          <canvas id="radarChart" width="220" height="220"></canvas>
+          <div class="score-readout" id="scoreReadout"></div>
+          <div class="radar-legend">
+            <div class="radar-legend-item"><div class="radar-legend-dot" style="background:var(--sbert)"></div>SBERT</div>
+            <div class="radar-legend-item"><div class="radar-legend-dot" style="background:var(--openl3)"></div>OpenL3</div>
+            <div class="radar-legend-item"><div class="radar-legend-dot" style="background:var(--clap)"></div>CLAP</div>
+          </div>
+        </div>
+        <div class="model-tabs" id="modelTabs">
+          <button class="model-tab active" data-view="sbert" onclick="switchTab('sbert')">SBERT</button>
+          <button class="model-tab" data-view="openl3" onclick="switchTab('openl3')">OpenL3</button>
+          <button class="model-tab" data-view="clap" onclick="switchTab('clap')">CLAP</button>
+        </div>
+        <div id="modelResultsWrap"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Browse tracks -->
+  <div class="browse" id="browseSection">
+    <h3>Browse tracks</h3>
+    <div class="genre-filters" id="genreFilters"></div>
+    <div class="track-grid" id="trackGrid"></div>
+    <button class="load-more" id="loadMore" onclick="loadMoreTracks()">Load more</button>
+  </div>
+</main>
+
+<script>
+const GENRE_COLOURS = {
+  "Electronic":   "#9b8fce",
+  "Experimental": "#e6b566",
+  "Folk":         "#8bc5a3",
+  "Hip-Hop":      "#e8907a",
+  "Instrumental": "#a8d8ea",
+  "International":"#d4a8c8",
+  "Pop":          "#f4b183",
+  "Rock":         "#c4a07c",
+};
+
+const VIEW_COLOURS = {
+  sbert:  { fill: "#f4b183", dark: "#d48a5a" },
+  openl3: { fill: "#a8d8ea", dark: "#6baec4" },
+  clap:   { fill: "#c5b4e3", dark: "#9681c2" },
+};
+
+function genreBadge(genre) {
+  const c = GENRE_COLOURS[genre] || "#aaa";
+  return `<span class="genre-badge" style="background:${c}30;color:${darken(c)};border:1px solid ${c}55">${genre}</span>`;
+}
+function darken(hex) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgb(${Math.round(r*0.6)},${Math.round(g*0.6)},${Math.round(b*0.6)})`;
+}
+function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+// ── State ───────────────────────────────────────────────────────────────
+let currentData = null;   // full API response
+let selectedIdx = null;   // index into fused results
+let activeTab = "sbert";
+
+// ── Search ──────────────────────────────────────────────────────────────
+const searchInput = document.getElementById("searchInput");
+const searchResults = document.getElementById("searchResults");
+let searchTimeout;
+
+searchInput.addEventListener("input", () => {
+  clearTimeout(searchTimeout);
+  const q = searchInput.value.trim();
+  if (q.length < 2) { searchResults.classList.remove("show"); return; }
+  searchTimeout = setTimeout(async () => {
+    try {
+      const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+      if (!r.ok) throw new Error(`Search failed (${r.status})`);
+      const data = await r.json();
+      if (!data.length) { searchResults.classList.remove("show"); return; }
+      searchResults.innerHTML = data.map(t => `
+        <div class="search-item" onclick="selectTrack(${t.track_id})">
+          <div>
+            <div class="title">${esc(t.title)}</div>
+            <div class="artist">${esc(t.artist)}</div>
+          </div>
+          ${genreBadge(t.genre)}
+        </div>
+      `).join("");
+      searchResults.classList.add("show");
+    } catch (err) {
+      console.error("Search error:", err);
+      searchResults.classList.remove("show");
+    }
+  }, 200);
+});
+document.addEventListener("click", e => {
+  if (!e.target.closest(".search-wrap")) searchResults.classList.remove("show");
+});
+
+// ── Select seed track ───────────────────────────────────────────────────
+async function selectTrack(trackId) {
+  searchResults.classList.remove("show");
+  searchInput.value = "";
+  selectedIdx = null;
+
+  document.getElementById("loading").classList.add("show");
+  document.getElementById("panels").classList.remove("show");
+  document.getElementById("seedCard").classList.remove("show");
+  document.getElementById("browseSection").style.display = "none";
+
+  try {
+    const r = await fetch(`/api/recommend/${trackId}?k=10`);
+    if (!r.ok) throw new Error(`Recommendation failed (${r.status})`);
+    const data = await r.json();
+    currentData = data;
+    document.getElementById("loading").classList.remove("show");
+
+    // Seed card
+    const seed = data.seed;
+    document.getElementById("seedTitle").textContent = seed.title;
+    document.getElementById("seedArtist").textContent = seed.artist;
+    const genreEl = document.getElementById("seedGenre");
+    genreEl.textContent = seed.genre;
+    const gc = GENRE_COLOURS[seed.genre] || "#aaa";
+    genreEl.style.cssText = `background:${gc}30;color:${darken(gc)};border:1px solid ${gc}55`;
+    document.getElementById("seedAudio").src = `/api/audio/${seed.track_id}`;
+    document.getElementById("seedCard").classList.add("show");
+
+    renderFusedList(data.views.fused.results);
+    clearDetail();
+    document.getElementById("panels").classList.add("show");
+  } catch (err) {
+    console.error("Recommendation error:", err);
+    document.getElementById("loading").classList.remove("show");
+    document.getElementById("browseSection").style.display = "";
+  }
+}
+
+// ── Render fused list (main panel) ──────────────────────────────────────
+function renderFusedList(results) {
+  const list = document.getElementById("fusedList");
+  list.innerHTML = results.map((r, i) => {
+    const vs = r.view_scores || {};
+    const maxScore = Math.max(vs.sbert || 0, vs.openl3 || 0, vs.clap || 0, 0.01);
+    const barW = (key) => Math.round(((vs[key] || 0) / maxScore) * 24);
+    return `
+      <li class="fused-item" data-idx="${i}" onclick="selectRec(${i})">
+        <span class="rank">${i + 1}</span>
+        <div class="info">
+          <div class="title">${esc(r.title)}</div>
+          <div class="artist">${esc(r.artist)} &middot; ${genreBadge(r.genre)}</div>
+        </div>
+        <div class="score-cell">
+          <div class="score">${r.score.toFixed(4)}</div>
+          <div class="mini-bars">
+            <div class="mini-bar" style="width:${barW('sbert')}px;background:var(--sbert)"></div>
+            <div class="mini-bar" style="width:${barW('openl3')}px;background:var(--openl3)"></div>
+            <div class="mini-bar" style="width:${barW('clap')}px;background:var(--clap)"></div>
+          </div>
+        </div>
+      </li>`;
+  }).join("");
+}
+
+// ── Select a recommendation → populate detail panel ─────────────────────
+function selectRec(idx) {
+  selectedIdx = idx;
+  // Highlight
+  document.querySelectorAll(".fused-item").forEach((el, i) => {
+    el.classList.toggle("selected", i === idx);
+  });
+
+  const rec = currentData.views.fused.results[idx];
+  document.getElementById("detailEmpty").style.display = "none";
+  document.getElementById("detailContent").style.display = "";
+  document.getElementById("detailName").textContent = rec.title;
+  document.getElementById("detailArtist").textContent = rec.artist;
+
+  // Score readout
+  const vs = rec.view_scores || {};
+  document.getElementById("scoreReadout").innerHTML = [
+    { key: "sbert",  label: "SBERT",  color: "var(--sbert-dark)" },
+    { key: "openl3", label: "OpenL3", color: "var(--openl3-dark)" },
+    { key: "clap",   label: "CLAP",   color: "var(--clap-dark)" },
+  ].map(v => `
+    <div class="score-readout-item">
+      <div class="score-readout-value" style="color:${v.color}">${(vs[v.key] || 0).toFixed(3)}</div>
+      <div class="score-readout-label">${v.label}</div>
+    </div>
+  `).join("");
+
+  drawRadar(vs);
+  activeTab = "sbert";
+  renderModelTab();
+}
+
+function clearDetail() {
+  document.getElementById("detailEmpty").style.display = "";
+  document.getElementById("detailContent").style.display = "none";
+}
+
+// ── Radar chart (canvas) ────────────────────────────────────────────────
+function drawRadar(viewScores) {
+  const canvas = document.getElementById("radarChart");
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const cx = W / 2, cy = H / 2;
+  const R = 85; // max radius
+  const axes = [
+    { key: "sbert",  label: "SBERT",  angle: -Math.PI / 2 },
+    { key: "openl3", label: "OpenL3", angle: -Math.PI / 2 + (2 * Math.PI / 3) },
+    { key: "clap",   label: "CLAP",   angle: -Math.PI / 2 + (4 * Math.PI / 3) },
+  ];
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid rings
+  for (let ring = 1; ring <= 4; ring++) {
+    const r = (R / 4) * ring;
+    ctx.beginPath();
+    for (let i = 0; i <= axes.length; i++) {
+      const a = axes[i % axes.length].angle;
+      const x = cx + r * Math.cos(a);
+      const y = cy + r * Math.sin(a);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = ring === 4 ? "#d8d6d0" : "#ececea";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // Axis lines
+  axes.forEach(a => {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + R * Math.cos(a.angle), cy + R * Math.sin(a.angle));
+    ctx.strokeStyle = "#d8d6d0";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  // Axis labels
+  ctx.font = "500 9px 'Helvetica Neue', sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  axes.forEach(a => {
+    const lx = cx + (R + 18) * Math.cos(a.angle);
+    const ly = cy + (R + 18) * Math.sin(a.angle);
+    const col = VIEW_COLOURS[a.key];
+    ctx.fillStyle = col.dark;
+    ctx.fillText(a.label.toUpperCase(), lx, ly);
+  });
+
+  // Data polygon
+  const values = axes.map(a => Math.max(0, Math.min(1, viewScores[a.key] || 0)));
+
+  // Fill
+  ctx.beginPath();
+  values.forEach((v, i) => {
+    const r = v * R;
+    const x = cx + r * Math.cos(axes[i].angle);
+    const y = cy + r * Math.sin(axes[i].angle);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  ctx.fillStyle = "rgba(180, 175, 195, 0.15)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(140, 135, 155, 0.4)";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Data points with per-axis colour
+  values.forEach((v, i) => {
+    const r = v * R;
+    const x = cx + r * Math.cos(axes[i].angle);
+    const y = cy + r * Math.sin(axes[i].angle);
+    const col = VIEW_COLOURS[axes[i].key];
+
+    // Outer ring
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = col.fill;
+    ctx.fill();
+
+    // Inner dot
+    ctx.beginPath();
+    ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = col.dark;
+    ctx.fill();
+  });
+}
+
+// ── Model tabs (per-view results in right panel) ────────────────────────
+function switchTab(view) {
+  activeTab = view;
+  renderModelTab();
+}
+
+function renderModelTab() {
+  // Update tab active states
+  document.querySelectorAll(".model-tab").forEach(t => {
+    t.classList.toggle("active", t.dataset.view === activeTab);
+  });
+
+  if (!currentData) return;
+  const viewData = currentData.views[activeTab];
+  if (!viewData) return;
+
+  const wrap = document.getElementById("modelResultsWrap");
+  wrap.innerHTML = `
+    <ul class="model-results" data-view="${activeTab}">
+      ${viewData.results.map((r, i) => `
+        <li class="model-results-item" onclick="selectTrack(${r.track_id})">
+          <span class="rank">${i + 1}</span>
+          <div class="info">
+            <div class="title">${esc(r.title)}</div>
+            <div class="artist">${esc(r.artist)}</div>
+          </div>
+          <span class="score">${r.score.toFixed(3)}</span>
+        </li>
+      `).join("")}
+    </ul>
+  `;
+}
+
+// ── Browse ──────────────────────────────────────────────────────────────
+let browsePage = 1;
+let browseGenre = "";
+
+async function loadGenres() {
+  try {
+    const r = await fetch("/api/genres");
+    if (!r.ok) throw new Error(`Genres failed (${r.status})`);
+    const data = await r.json();
+    const el = document.getElementById("genreFilters");
+    el.innerHTML = `<button class="genre-btn active" onclick="filterGenre('')">All</button>` +
+      data.map(([g, c]) => `<button class="genre-btn" onclick="filterGenre('${g}')">${g} <small>(${c})</small></button>`).join("");
+  } catch (err) {
+    console.error("Failed to load genres:", err);
+  }
+}
+
+function filterGenre(genre) {
+  browseGenre = genre;
+  browsePage = 1;
+  document.getElementById("trackGrid").innerHTML = "";
+  document.querySelectorAll(".genre-btn").forEach(b => {
+    b.classList.toggle("active", b.textContent.startsWith(genre || "All"));
+  });
+  loadMoreTracks();
+}
+
+async function loadMoreTracks() {
+  const url = `/api/tracks?page=${browsePage}&per_page=50` + (browseGenre ? `&genre=${browseGenre}` : "");
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`Tracks failed (${r.status})`);
+    const data = await r.json();
+    const grid = document.getElementById("trackGrid");
+    data.tracks.forEach(t => {
+      const card = document.createElement("div");
+      card.className = "track-card";
+      card.onclick = () => selectTrack(t.track_id);
+      card.innerHTML = `
+        <div>
+          <div class="title">${esc(t.title)}</div>
+          <div class="artist">${esc(t.artist)}</div>
+        </div>
+        ${genreBadge(t.genre)}
+      `;
+      grid.appendChild(card);
+    });
+    browsePage++;
+    document.getElementById("loadMore").style.display =
+      data.tracks.length < 50 ? "none" : "inline-block";
+  } catch (err) {
+    console.error("Failed to load tracks:", err);
+  }
+}
+
+// Init
+loadGenres();
+loadMoreTracks();
+</script>
+</body>
+</html>

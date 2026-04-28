@@ -18,6 +18,13 @@ CLAP_DURATION_SAMPLES = CLAP_SR * CLAP_DURATION_S  # 480000
 
 # Processing
 CLAP_BATCH_SIZE = 32
+SBERT_BATCH_SIZE = 32
+
+# Fusion (Reciprocal Rank Fusion)
+RRF_K = 60  # RRF smoothing constant — controls how much lower ranks are discounted
+
+# Graph construction
+MAX_CO_GENRE_EDGES = 200_000  # cap co-genre edges to prevent memory explosion
 
 # GNN (Role 3 — Issac)
 GNN_HIDDEN_DIM = 256

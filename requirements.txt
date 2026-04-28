@@ -1,34 +1,34 @@
 # Core ML & Deep Learning
-torch
-torchaudio
-torchvision
-transformers
-sentence-transformers
+torch==2.1.2
+torchaudio==2.1.2
+torchvision==0.16.2
+transformers==4.36.2
+sentence-transformers==2.2.2
 # CLAP (LAION-AI)
-laion-clap
+laion-clap==1.1.6
 
 # Audio Processing
-librosa
-scipy
-soundfile
-tqdm
+librosa==0.10.1
+scipy==1.11.4
+soundfile==0.12.1
+tqdm==4.66.1
 
 # Data & Search
-pandas
-numpy
-faiss-cpu
+pandas==2.1.4
+numpy==1.26.2
+faiss-cpu==1.7.4
 
 # Optional: GNN (PyTorch Geometric)
 # Note: Install specifically for your torch/cuda/mac version
-# torch-geometric
+# pip install torch-geometric==2.4.0
 
 # Utilities
-requests
-python-dotenv
-ipykernel
-Matplotlib
-seaborn
+requests==2.31.0
+python-dotenv==1.0.0
+ipykernel==6.27.1
+matplotlib==3.8.2
+seaborn==0.13.0
 
 # Server Deployment
-flask
+flask==3.0.0
 gunicorn==21.2.0

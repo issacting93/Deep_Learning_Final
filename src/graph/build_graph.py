@@ -20,7 +20,7 @@ import torch
 from torch_geometric.data import HeteroData
 import torch_geometric.transforms as T
 
-from src.config import PROCESSED_DIR
+from src.config import PROCESSED_DIR, MAX_CO_GENRE_EDGES
 from src.metadata import load_tracks, load_genres, get_small_subset_ids
 
 
@@ -163,7 +163,7 @@ def build_hetero_graph(verbose: bool = True) -> tuple[HeteroData, dict]:
     # memory blow-up on large genres (e.g. Rock: 1000 tracks → 1M edges).
     import random as _random
     _random.seed(42)
-    MAX_CO_GENRE_EDGES = 200_000   # total cap across all genres
+    # MAX_CO_GENRE_EDGES imported from src.config
 
     genre_to_tracks: dict[int, list] = {}
     for t, g in zip(tg_src, tg_dst):

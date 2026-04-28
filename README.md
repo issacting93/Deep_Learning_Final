@@ -1,243 +1,185 @@
-	 # Multi-Faceted Music Retrieval
+# Multi-Faceted Music Retrieval
 
-A multimodal music retrieval system using the FMA (Free Music Archive) dataset. The system supports retrieval across four "views" of music:
+## Problem
 
-1. **Vibe/Text Search** — CLAP audio-text embeddings (LAION-CLAP, HTSAT-tiny)
-2. **Lyrics/Semantic Search** — Sentence-BERT
-3. **Acoustic Similarity** — OpenL3 or MusicFM audio embeddings
-4. **Graph-based Recommendation** — Heterogeneous graph (tracks, artists, genres)
+Music retrieval systems typically rely on a single representation of music — either audio features or text metadata. This limits their ability to satisfy diverse user needs: a query like "chill lo-fi vibes" requires understanding musical mood (acoustic), while "songs by folk artists about travel" requires understanding metadata (textual), and "tracks similar to this one I like" requires structural knowledge (graph). No single embedding captures all of these.
 
-## What Has Been Done
+This project builds a **multi-view retrieval system** over the [Free Music Archive (FMA)](https://github.com/mdeff/fma) dataset, an open-licensed benchmark of 8,000 tracks across 8 top-level genres. Each view produces an independent embedding space, and a fusion layer combines them to outperform any single view.
 
-### 1. Data Acquisition & Validation
+## Definitions
 
-We downloaded the FMA (Free Music Archive) small subset, which contains 8,000 tracks across 163 genres totalling ~7.7 GB of MP3 audio. The dataset also includes rich metadata: `tracks.csv` (106,574 entries across all subsets with multi-level column headers covering track info, artist info, album info, and set splits), `genres.csv` (163 genre taxonomy), and `echonest.csv` (audio features like danceability, energy, and valence from the Echo Nest API).
+- **Embedding**: A fixed-size numerical vector (e.g., 384 or 512 dimensions) that represents a track in a continuous space where similar items are close together. All retrieval in this project reduces to nearest-neighbor search over embeddings.
+- **FAISS (Facebook AI Similarity Search)**: A library for efficient nearest-neighbor search over dense vectors. We use `IndexFlatIP` (exact inner product search), which is equivalent to cosine similarity when vectors are L2-normalised. At our scale (~8,000 vectors), exact search runs in <1ms per query.
+- **Cosine Similarity**: The cosine of the angle between two vectors, ranging from -1 to 1. Higher values indicate greater similarity. For L2-normalised vectors, cosine similarity equals the dot product.
+- **Contrastive Learning**: A training strategy where a model learns to map similar pairs (e.g., an audio clip and its text description) close together in embedding space and dissimilar pairs far apart, typically using InfoNCE loss.
+- **Data Leakage**: When information from the evaluation target (e.g., genre labels) is present in the model input, artificially inflating performance metrics.
 
-We built an automated download-and-extract pipeline (`scripts/download_fma.py`) that fetches the zip archives and extracts them into the project directory structure. An audit script (`scripts/audit_metadata.py`) cross-references the metadata against files actually on disk, confirming all 8,000 tracks are present. The audit also reports subset distribution (small: 8,000, medium: 17,000, large: 81,574), average track duration (277.85s), and genre counts. Results are persisted to `data/processed/audit_results.json` for downstream use.
+## Retrieval Views
 
-### 2. Codebase Architecture
+| View | Model | Dimensions | Input | What It Captures |
+|---|---|---|---|---|
+| 1. Vibe/Text Search | CLAP (HTSAT-tiny) | 512 | Audio waveform | High-level semantics: mood, genre feel, instrument presence |
+| 2. Lyrics/Semantic Search | SBERT (all-MiniLM-L6-v2) | 384 | Metadata + lyrics | Textual semantics: artist identity, lyrical content, descriptive tags |
+| 3. Acoustic Similarity | OpenL3 | 512 | Audio waveform | Low-level acoustics: timbre, rhythm, texture |
+| 4. Graph Recommendation | HeteroGNN (SAGEConv) | 256 | Track-artist-genre graph | Structural connectivity: co-genre relationships, artist similarity |
 
-We designed a modular `src/` package to support all four retrieval views through a shared interface:
+### Why multiple views?
 
-- **`src/config.py`** centralises all file paths (relative to project root), audio constants (48kHz sample rate, 10s CLAP window), batch sizes, and automatic device selection (CUDA > CPU; MPS disabled due to incomplete op support in CLAP).
-- **`src/metadata.py`** handles loading the FMA multi-index CSV files and filtering to the small subset.
-- **`src/audio_utils.py`** resolves FMA's directory structure (`000/000002.mp3`) and discovers which track IDs have valid audio files on disk.
-- **`src/embeddings/base.py`** defines an abstract `EmbeddingGenerator` class with `generate()` and `load_embeddings()` methods, so all future embedding pipelines (OpenL3, Sentence-BERT, etc.) follow the same interface.
-- **`src/indexing/faiss_index.py`** wraps FAISS with build/save/load/query operations, supporting both cosine similarity (via L2-normalised inner product) and L2 distance metrics.
+SBERT and OpenL3 share only **5.6% overlap** in their top-20 neighbors (Spearman rho = -0.77). This means the two modalities retrieve almost entirely different tracks for the same query — they are complementary, not redundant. Fusion combines these independent signals to improve retrieval quality.
 
-### 3. CLAP Embedding Generation (View 1: Vibe/Text Search)
-
-We used LAION-CLAP (HTSAT-tiny backbone) to generate 512-dimensional audio embeddings for the entire small subset. CLAP is a contrastive language-audio pretraining model that maps both audio and text into a shared embedding space, enabling text-to-music retrieval.
-
-The pipeline (`src/embeddings/clap.py`) processes tracks in batches of 32 using the `get_audio_embedding_from_filelist` API, which internally handles resampling to 48kHz, int16 quantisation, and feature extraction with random truncation for clips longer than 10 seconds. Each batch is checkpointed to `data/processed/clap_batches/batch_NNNN.npz`, with a progress file tracking completed batches. This means the pipeline can resume after interruption without reprocessing. If a batch fails (e.g. a corrupt MP3), it falls back to single-file processing, skipping only the broken tracks.
-
-The full run processed all 8,000 tracks in ~8 minutes on CPU, producing 7,997 embeddings (3 corrupt MP3s were skipped: tracks 99134, 108925, 133297). Batch files are consolidated into `data/processed/clap_embeddings.npy` (7997 x 512 float32) and `data/processed/clap_track_ids.npy`.
-
-### 4. FAISS Index & Retrieval
-
-We built a FAISS `IndexFlatIP` (exact inner product search) over the L2-normalised CLAP embeddings, making inner product equivalent to cosine similarity. With only ~8,000 512-dim vectors (~16 MB), exact search is instantaneous (<1ms per query). The index is saved to `data/processed/clap_faiss.index`.
-
-Text-to-music retrieval works by embedding a natural language query through CLAP's text encoder, then querying the FAISS index for the nearest audio embeddings. We tested with 8 diverse queries:
-
-| Query | Top Result | Genre | Score |
-|---|---|---|---|
-| "sad piano ballad" | DUITA — XPURM | Instrumental | 0.6513 |
-| "aggressive heavy metal with fast drums" | Dead Elements — Angstbreaker | Rock | 0.5395 |
-| "upbeat happy pop song" | One Way Love — Ready for Men | Pop | 0.5248 |
-| "acoustic guitar folk song" | Wainiha Valley — Mia Doi Todd | Folk | 0.4900 |
-| "chill lo-fi vibes" | Apparitions Under Glass — Sarin | Rock | 0.4072 |
-| "funky bass groove" | Okružen mrtvima — CROCODILE TEARS | Experimental | 0.4200 |
-| "ambient electronic soundscape" | Emptiness — Alex Mason | Instrumental | 0.3482 |
-| "jazz saxophone improvisation" | Slow Moving — Moon Veil | Electronic | 0.3185 |
-
-Results are genre-coherent for well-represented genres (Instrumental, Rock, Pop, Folk). Lower scores on jazz/ambient reflect the FMA small subset's genre imbalance rather than model failure.
-
-### 5. Embedding Visualisation & Analysis
-
-We projected the 7,997 CLAP embeddings into 2D using both t-SNE (with PCA-50 preprocessing, perplexity=30) and PCA, coloured by top genre. Key findings:
-
-- **t-SNE** shows clear genre clustering: Hip-Hop forms a distinct cluster in the upper-left, Rock groups in the left, Instrumental occupies the lower-right, and Electronic scatters across the right side. Folk and International overlap in the center-bottom, which is expected given their acoustic similarity.
-  
-  ![t-SNE CLAP Embeddings](data/processed/tsne_clap_embeddings.png)
-
-- **Genre centroid similarity heatmap** (cosine similarity between mean embeddings of the top 8 genres) reveals that Hip-Hop and Pop are most similar (0.81), Folk and International cluster together (0.80), and Rock and Electronic are the most distinct pair (0.64).
-
-  ![Genre Similarity Heatmap](data/processed/genre_similarity_heatmap.png)
-
-- **PCA variance curve** shows the 512 dimensions are well-utilised — 50 components capture ~85% of variance, indicating the embeddings are rich and non-degenerate.
-
-  ![PCA Variance Curve](data/processed/pca_variance.png)
-
-- **Embedding norms** are exactly 1.0 for all tracks, confirming CLAP outputs are already L2-normalised (consistent with contrastive learning objectives).
-
-  ![Embedding Norms](data/processed/embedding_norms.png)
-
-All plots are saved in `data/processed/` as PNG files.
-
----
-
-## Team Roles & Next Steps
-
-Each role produces independent outputs that feed into a shared evaluation and fusion system. All new embedding generators should subclass `src/embeddings/base.py:EmbeddingGenerator` and output to `data/processed/`.
-
-### Role 1: Acoustic Similarity (OpenL3/MusicFM Embeddings) — Wenny
-
-**Goal**: Build a second embedding space that captures low-level acoustic features (timbre, rhythm, texture) rather than CLAP's high-level semantic features. This enables audio-to-audio retrieval — "find songs that sound like this one".
-
-**Tasks**:
-- Create `src/embeddings/openl3.py` following the `EmbeddingGenerator` base class
-- Generate OpenL3 embeddings for all 8,000 tracks (`content_type="music"`, `embedding_size=512`)
-- Alternative: use MusicFM for richer music-specific representations (pretrained on large-scale music data)
-- Build a second FAISS index (`data/processed/openl3_faiss.index`)
-- Produce a side-by-side t-SNE comparison: do CLAP and OpenL3 cluster genres the same way? Where do they disagree? (e.g. CLAP groups Hip-Hop and Pop together at 0.81 similarity — does OpenL3 separate them better based on acoustic features?)
-- Test audio-to-audio queries: pick a track, find its nearest neighbours, check if results are musically coherent
-
-**Deliverables**: `src/embeddings/openl3.py`, FAISS index, comparison notebook
-
-### Role 2: Lyrics & Semantic Search (Sentence-BERT) — Sid
-
-**Goal**: Build a text-based retrieval view using track metadata. This complements the audio-based views by enabling search over artist names, track titles, genre tags, and descriptive text.
-
-**Tasks**:
-- For each track, construct a text string from metadata: `"{title} by {artist}. Genre: {genre}. Tags: {tags}."` — pull these fields from `tracks.csv`
-- Embed all 8,000 text strings with Sentence-BERT (`sentence-transformers/all-MiniLM-L6-v2`, 384-dim)
-- Build a third FAISS index (`data/processed/sbert_faiss.index`)
-- Optionally: pull lyrics from the Genius API for tracks where available, embed those separately as a richer text signal
-- Analyse overlap with CLAP: for the same text query, do CLAP (audio-based) and SBERT (metadata-based) return the same tracks? Compute rank correlation between the two result lists
-- Explore the `echonest.csv` features (danceability, energy, valence, tempo) — can these be used as additional retrieval signals or filters?
-
-**Deliverables**: `src/embeddings/sbert.py`, FAISS index, overlap analysis notebook
-
-### Role 3: Graph-based Recommendation (PyTorch Geometric) — Issac
-
-**Goal**: Build a heterogeneous graph from FMA metadata and learn structural embeddings that encode relationships between tracks, artists, and genres. This enables recommendation-style retrieval based on connectivity rather than content.
-
-**Tasks**:
-- Install `torch-geometric` (version must match your torch/CUDA/platform)
-- Construct a heterogeneous graph from FMA metadata:
-  - **Nodes**: tracks (8,000), artists, genres (163), optionally albums
-  - **Edges**: track→artist, track→genre, artist→genre, tracks sharing the same genre (co-genre edges)
-- Train a GNN (GraphSAGE or GAT) to produce node embeddings via link prediction or node classification
-- Build a fourth FAISS index from learned track embeddings
-- Analyse: which tracks are most central in the graph (highest degree/PageRank)? Do graph-based recommendations surface tracks that audio-based methods miss?
-- Visualise the graph structure (e.g. genre subgraph connectivity)
-
-**Deliverables**: `src/graph/`, trained GNN checkpoint in `models/`, recommendation notebook
-
-### Role 4: Evaluation & Multi-View Fusion — Jiayi
-
-**Goal**: Quantitatively evaluate each retrieval view and build a fusion system that combines all views to outperform any single one.
-
-**Tasks**:
-- Define ground truth relevance criteria:
-  - **Baseline**: same top-genre = relevant (8 classes, easy)
-  - **Harder**: same sub-genre = relevant (163 classes)
-  - **Optional**: manual annotations for a small query set
-- Implement evaluation metrics in `src/evaluation.py`: Precision@K, Recall@K, MAP, NDCG
-- Evaluate each view independently — which is best at genre retrieval? At discovering cross-genre connections?
-- Build a late fusion system in `src/fusion.py`:
-  - **Simple**: weighted sum of cosine similarity scores from each view
-  - **Rank fusion**: reciprocal rank fusion (RRF) across all views
-  - **Learned**: train a small MLP that takes per-view scores as input and predicts relevance
-- Show that fusion outperforms any single view across all metrics
-- Create a results notebook with comparison tables, per-genre breakdowns, and statistical significance tests
-
-**Deliverables**: `src/evaluation.py`, `src/fusion.py`, comprehensive evaluation notebook
-
-### Role 5: Fine-tuning & Deep Analysis — Helena
-
-**Goal**: Improve the base CLAP model by fine-tuning on FMA data, and conduct deeper analysis of the embedding space to understand model behaviour.
-
-**Tasks**:
-- **Fine-tune CLAP** on FMA using contrastive learning:
-  - Positive pairs: (audio clip, "{title} by {artist}, {genre} music") text descriptions
-  - Use the existing CLAP checkpoint as initialisation, fine-tune with InfoNCE loss
-  - Train on the small subset, validate on a held-out split
-- **Before/after comparison**: regenerate embeddings with the fine-tuned model, compare t-SNE plots and genre similarity heatmaps. Does the Hip-Hop/Pop conflation (0.81 similarity) reduce? Do retrieval scores improve?
-- **Echo Nest feature correlation**: correlate CLAP PCA dimensions with Echo Nest features (danceability, energy, valence, tempo) — which embedding dimensions encode which musical attributes?
-- **Failure analysis**: identify systematic retrieval failures. Which queries consistently return wrong-genre results? Are there tracks that are outliers in embedding space? What makes them unusual?
-- **Ablation study**: test different CLAP backbones (HTSAT-tiny vs HTSAT-base), embedding dimensions, and t-SNE hyperparameters
-
-**Deliverables**: fine-tuned checkpoint in `models/`, before/after comparison notebook, failure analysis notebook
-
----
-
-### How the roles connect
+## Architecture
 
 ```text
-Role 1 — Wenny  (OpenL3/Acoustic) ──────┐
-Role 2 — Sid    (Lyrics/SBERT) ─────────┤
-Role 3 — Issac  (Graph/GNN) ────────────┼──→ Role 4 — Jiayi (Evaluation & Fusion) ──→ Final System
-Role 5 — Helena (Fine-tuned CLAP) ──────┘
+Role 1 — Wenny  (OpenL3 Acoustic)    ──┐
+Role 2 — Sid & Issac (SBERT Lyrics)  ──┤
+Role 3 — Archive (GNN Graph)         ──┼──> Role 4 — Jiayi (Evaluation & Fusion) ──> Final System
+Role 5 — Helena (Fine-tuned CLAP)    ──┘
 ```
 
-Each role produces embeddings and a FAISS index. Role 4 consumes all of them to evaluate and fuse. Role 5 improves the base CLAP view that's already working. All roles can work in parallel — the shared `EmbeddingGenerator` interface and `FaissIndex` wrapper ensure consistency.
+All embedding generators subclass `src/embeddings/base.py:EmbeddingGenerator` with a shared `generate()` / `load_embeddings()` interface. All FAISS indices use the same `src/indexing/faiss_index.py` wrapper. This ensures any view can be swapped in or out of the fusion layer without code changes.
 
-*Note: Each role now has its own dedicated directory (e.g., `role1_acoustic_wenny/`) containing role-specific instructions and working files.*
+## Results
 
----
+### CLAP Text-to-Music Retrieval (View 1)
+
+CLAP maps both audio and text into a shared 512-d embedding space via contrastive learning, enabling natural language queries against audio. We generated embeddings for 7,997 of 8,000 tracks (3 corrupt MP3s skipped).
+
+| Query | Top Result | Genre | Cosine Sim |
+|---|---|---|---|
+| "sad piano ballad" | DUITA — XPURM | Instrumental | 0.65 |
+| "aggressive heavy metal with fast drums" | Dead Elements — Angstbreaker | Rock | 0.54 |
+| "upbeat happy pop song" | One Way Love — Ready for Men | Pop | 0.52 |
+| "acoustic guitar folk song" | Wainiha Valley — Mia Doi Todd | Folk | 0.49 |
+
+Cosine similarity ranges from -1 to 1; scores above 0.4 indicate strong matches in CLAP's embedding space. Scores are lower for underrepresented genres in FMA (jazz, ambient) due to dataset imbalance, not model failure.
+
+**Genre structure** in CLAP embeddings (cosine similarity between genre centroids):
+- Most similar: Hip-Hop and Pop (0.81), Folk and International (0.80)
+- Most distinct: Rock and Electronic (0.64)
+- PCA: 50 components capture ~85% of variance across 512 dimensions
+
+### SBERT Semantic Search (View 2)
+
+SBERT (Sentence-BERT) is a siamese network fine-tuned on NLI/paraphrase data to produce 384-d sentence embeddings. We embed track metadata (title, artist, filtered tags) and lyrics fetched from the Genius API.
+
+**Data leakage fix**: The original input strings included `genre_top` directly, which would inflate any genre-based evaluation. We also found that 48.8% of non-empty `tags` fields contain genre-like labels. Both were removed — genre is used only as evaluation ground truth, never as model input.
+
+**PCA**: The embedding space is highly distributed — 181 components needed for 90% variance (vs. 50 for CLAP's 512-d space). This suggests SBERT utilises its dimensions more uniformly, spreading information across the full 384-d space.
+
+### Echo Nest Evaluation (Independent Ground Truth)
+
+To evaluate retrieval quality without genre leakage, we measured whether each view's nearest neighbors are similar in Echo Nest audio features (danceability, energy, valence, tempo, acousticness, instrumentalness, liveness, speechiness) — features no model saw during training. All 8 features were standardised to z-scores before computing Euclidean distance.
+
+| Method | Avg Distance | vs Random | p-value |
+|---|---|---|---|
+| Random Baseline | 3.80 | — | — |
+| SBERT (Text+Lyrics) | 3.33 | -12.4% | 1.6e-06 |
+| Fused (SBERT+OpenL3) | 3.22 | -15.1% | 1.4e-08 |
+| **OpenL3 (Audio)** | **2.87** | **-24.3%** | **1.8e-21** |
+
+OpenL3 performs best because both it and Echo Nest operate in the acoustic domain. Fused embeddings outperform either modality alone, confirming that text and audio provide complementary signals. All differences are statistically significant (paired t-test, N=294).
+
+**Caveat**: The 294-track Echo Nest overlap is not uniformly distributed across genres (Folk and Hip-Hop are over-represented at ~21% each vs. 12.5% expected; Experimental is under-represented at 1.4%).
+
+### GNN Graph Recommendation (View 4)
+
+A 2-layer heterogeneous GNN (SAGEConv) trained on a track-artist-genre graph via link prediction. Produces 256-d track embeddings capturing structural connectivity. A Flask web demo (`role3_graph_archive/app.py`) provides interactive search at `localhost:5050`.
+
+## Team Roles
+
+### Role 1: Acoustic Similarity — Wenny
+Generate OpenL3 embeddings (512-d) for audio-to-audio retrieval. Compare clustering with CLAP to understand where acoustic and semantic views agree/disagree.
+
+### Role 2: Lyrics & Semantic Search — Sid & Issac
+SBERT embeddings from metadata + Genius lyrics. Identified and fixed genre leakage in input strings and tags. Representation analysis: semantic robustness (10% overlap between "lonely" vs "isolated"), lexical bias, truncation impact. See `role2_lyrics_sid_issac/REPORT.md`.
+
+### Role 3: Graph Recommendation — Archive
+Heterogeneous GNN over track-artist-genre graph. Complete with FAISS index and web demo. See `role3_graph_archive/`.
+
+### Role 4: Evaluation & Fusion — Jiayi
+Evaluation framework (P@K, Recall@K, MAP, NDCG) and fusion methods (weighted sum, reciprocal rank fusion, learned reranker). Note: genre-based ground truth must account for the leakage fix — genre is excluded from SBERT input, so genre-based evaluation is now fair.
+
+### Role 5: Fine-tuning & Deep Analysis — Helena
+Fine-tune CLAP on FMA with contrastive learning. Before/after comparison of embeddings, Echo Nest feature correlation, failure analysis.
 
 ## Directory Structure
 
 ```text
 ├── data/
-│   ├── raw/                  # Downloaded zip files
-│   ├── fma_small/            # 8,000 MP3 audio files (organized by track ID)
-│   ├── fma_metadata/         # tracks.csv, genres.csv, echonest.csv, etc.
-│   └── processed/            # Embeddings, FAISS indices, plots, audit results
-├── models/                   # Pretrained model checkpoints
+│   ├── fma_small/               # 8,000 MP3 files (organized as 000/000002.mp3)
+│   ├── fma_metadata/            # tracks.csv, genres.csv, echonest.csv
+│   └── processed/               # Embeddings, FAISS indices, visualisations
+│       └── lyrics_enriched/     # Genre-free SBERT + fused embeddings
+├── models/                      # Checkpoints (gnn_checkpoint.pt)
 ├── notebooks/
-│   ├── 01_eda.ipynb                    # Dataset exploration
-│   ├── 02_clap_retrieval_demo.ipynb    # Interactive text-to-music search
-│   └── 03_embedding_visualisation.ipynb # t-SNE, PCA, similarity heatmaps
-├── role1_acoustic_wenny/     # OpenL3 acoustic embeddings project
-├── role2_lyrics_sid/         # Sentence-BERT semantic search project
-├── role3_graph_issac/        # Heterogeneous Graph recommendation project
-├── role4_evaluation_jiayi/   # Multi-view evaluation & fusion project
-├── role5_finetune_helena/    # CLAP fine-tuning and ablation project
+│   ├── 01_eda.ipynb                       # Dataset exploration
+│   ├── 02_clap_retrieval_demo.ipynb       # Text-to-music search demo
+│   ├── 03_embedding_visualisation.ipynb   # t-SNE, PCA, genre heatmaps
+│   ├── 04_graph_construction_viz.ipynb    # GNN graph structure
+│   ├── sbert_analysis.ipynb               # SBERT representation analysis
+│   ├── semantic_search_demo.ipynb         # SBERT query interface
+│   ├── clap_sbert_overlap.ipynb           # Cross-view comparison
+│   └── echonest_exploration.ipynb         # Echo Nest feature analysis
+├── role1_acoustic_wenny/        # OpenL3 acoustic embedding tasks
+├── role2_lyrics_sid_issac/      # SBERT semantic search + REPORT.md
+├── role3_graph_archive/         # GNN graph recommendation + Flask app
+├── role4_evaluation_jiayi/      # Evaluation & fusion framework
+├── role5_finetune_helena/       # CLAP fine-tuning tasks
 ├── scripts/
-│   ├── download_fma.py       # Download and extract FMA dataset
-│   ├── audit_metadata.py     # Audit metadata and cross-reference audio files
-│   ├── generate_clap_embeddings.py   # Generate CLAP embeddings (CLI)
-│   └── build_faiss_index.py  # Build FAISS index from embeddings
+│   ├── download_fma.py                    # Download FMA dataset
+│   ├── audit_metadata.py                  # Cross-reference metadata vs audio
+│   ├── generate_clap_embeddings.py        # CLAP embedding pipeline (CLI)
+│   ├── generate_sbert_embeddings.py       # SBERT embedding pipeline
+│   ├── build_faiss_index.py               # Build FAISS indices
+│   ├── encode_2000_tracks.py              # Encode 2,000-track subset
+│   ├── analyze_sbert_robustness.py        # Representation robustness tests
+│   ├── openl3_vs_sbert_overlap.py         # Cross-view overlap analysis
+│   └── generate_gnn_visuals.py            # GNN graph visualisations
 ├── src/
-│   ├── config.py             # Centralized paths, constants, device selection
-│   ├── metadata.py           # FMA metadata loading and filtering
-│   ├── audio_utils.py        # Track path resolution, valid-track discovery
+│   ├── config.py                # Paths, constants, device selection
+│   ├── metadata.py              # FMA metadata loading and filtering
+│   ├── metadata_builder.py      # Text string construction (genre-free)
+│   ├── audio_utils.py           # Track path resolution
+│   ├── lyrics_fetcher.py        # Genius API lyrics fetcher
 │   ├── embeddings/
-│   │   ├── base.py           # Abstract EmbeddingGenerator base class
-│   │   └── clap.py           # CLAP embedding pipeline (batched, checkpointed)
+│   │   ├── base.py              # Abstract EmbeddingGenerator interface
+│   │   ├── clap.py              # CLAP pipeline (batched, checkpointed)
+│   │   └── sbert.py             # Sentence-BERT pipeline
+│   ├── graph/
+│   │   ├── build_graph.py       # Heterogeneous graph construction
+│   │   ├── gnn_model.py         # 2-layer HeteroGNN (SAGEConv)
+│   │   └── train.py             # Link prediction training
 │   └── indexing/
-│       └── faiss_index.py    # FAISS index build/save/load/query
-├── README.md
-└── requirements.txt
+│       └── faiss_index.py       # FAISS index wrapper (cosine + L2)
+├── text_to_text_SBERT_FMA_GENIUS_2.py   # Lyrics-enriched SBERT + OpenL3 fusion
+├── .env                         # API keys (gitignored)
+├── Dockerfile                   # Deployment container
+├── requirements.txt
+└── README.md
 ```
 
 ## Setup
 
-1. Create a virtual environment:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Download and extract data:
-   ```bash
-   python scripts/download_fma.py
-   ```
-4. Generate CLAP embeddings:
-   ```bash
-   python scripts/generate_clap_embeddings.py            # full run (8,000 tracks)
-   python scripts/generate_clap_embeddings.py --limit 100 # test run
-   ```
-5. Build FAISS index:
-   ```bash
-   python scripts/build_faiss_index.py
-   ```
-6. Open the retrieval demo:
-   ```bash
-   jupyter notebook notebooks/02_clap_retrieval_demo.ipynb
-   ```
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Download FMA dataset
+python scripts/download_fma.py
+
+# Generate CLAP embeddings
+python scripts/generate_clap_embeddings.py            # full 8,000 tracks
+python scripts/generate_clap_embeddings.py --limit 100 # test run
+
+# Generate lyrics-enriched SBERT + fused embeddings
+export GENIUS_API_KEY="your-key"  # or add to .env
+python text_to_text_SBERT_FMA_GENIUS_2.py              # full pipeline
+python text_to_text_SBERT_FMA_GENIUS_2.py --skip-lyrics # reuse cached lyrics
+
+# Build FAISS indices
+python scripts/build_faiss_index.py
+
+# Launch GNN web demo
+python role3_graph_archive/app.py  # http://localhost:5050
+```

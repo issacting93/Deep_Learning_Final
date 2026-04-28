@@ -1,6 +1,11 @@
+import logging
+import tempfile
 from pathlib import Path
+
 import numpy as np
 import faiss
+
+logger = logging.getLogger(__name__)
 
 
 class FaissIndex:
@@ -32,15 +37,28 @@ class FaissIndex:
         distances, indices = self.index.search(q, k)
         results = []
         for dist, idx in zip(distances[0], indices[0]):
-            if idx < len(self.track_ids):
-                results.append((self.track_ids[idx], float(dist)))
+            if not (0 <= idx < len(self.track_ids)):
+                logger.warning(f"FAISS returned invalid index {idx}, skipping")
+                continue
+            results.append((self.track_ids[idx], float(dist)))
         return results
 
     def save(self, path: Path):
+        """Save index and track IDs atomically (write to temp, then rename)."""
         path = Path(path)
-        faiss.write_index(self.index, str(path))
         ids_path = path.with_suffix(".ids.npy")
-        np.save(ids_path, np.array(self.track_ids))
+
+        # Write index to temp file, then atomically rename
+        with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".faiss.tmp", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        faiss.write_index(self.index, str(tmp_path))
+        tmp_path.replace(path)
+
+        # Same for IDs
+        with tempfile.NamedTemporaryFile(dir=ids_path.parent, suffix=".npy.tmp", delete=False) as tmp:
+            tmp_ids_path = Path(tmp.name)
+        np.save(tmp_ids_path, np.array(self.track_ids))
+        tmp_ids_path.replace(ids_path)
 
     @classmethod
     def load(cls, path: Path, metric: str = "cosine"):

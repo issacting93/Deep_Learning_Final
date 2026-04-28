@@ -99,6 +99,16 @@ class CLAPEmbeddingGenerator(EmbeddingGenerator):
             all_ids.extend(data["track_ids"].tolist())
 
         embeddings = np.vstack(all_embeds)
+
+        # Validate L2 norms — CLAP should return unit-length vectors
+        norms = np.linalg.norm(embeddings, axis=1)
+        if not np.allclose(norms, 1.0, atol=0.05):
+            logger.warning(
+                f"CLAP embeddings not normalized (range {norms.min():.4f}–{norms.max():.4f}), "
+                "renormalizing."
+            )
+            embeddings = embeddings / (norms[:, np.newaxis] + 1e-8)
+
         np.save(output_dir / "clap_embeddings.npy", embeddings)
         np.save(output_dir / "clap_track_ids.npy", np.array(all_ids))
         logger.info(f"Consolidated {len(all_ids)} embeddings -> {output_dir}")
