@@ -9,13 +9,11 @@ build/
 # Virtual environment
 venv/
 
-# Data (large files)
+# Data (large raw files)
 data/raw/
 data/fma_small/
 data/fma_metadata/
 data/fma_2000_tracks/
-data/fma_2000_metadata/
-data/processed/
 
 # Models
 models/*.pt
