@@ -61,6 +61,10 @@ def load_view(name, emb_file, ids_file):
     embs = np.load(emb_file).astype(np.float32)
     ids = np.load(ids_file)
     ids = np.array([int(i) for i in ids])
+    
+    # Mean-center to remove DC offset before normalization
+    embs = embs - embs.mean(axis=0)
+
     # Validate and L2-normalise for cosine similarity via dot product
     norms = np.linalg.norm(embs, axis=1, keepdims=True)
     if not np.allclose(norms, 1.0, atol=0.05):

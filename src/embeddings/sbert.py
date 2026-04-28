@@ -21,25 +21,30 @@ class SentenceBERTEmbeddingGenerator(EmbeddingGenerator):
         self.dim = self.model.get_sentence_embedding_dimension()
         logger.info(f"Sentence-BERT model ready (dim={self.dim}).")
 
-    def generate(self, track_ids: list, output_dir: Path = PROCESSED_DIR,
-                 batch_size: int = SBERT_BATCH_SIZE, resume: bool = True) -> tuple:
+    def generate(
+        self,
+        track_ids: list,
+        output_dir: Path = PROCESSED_DIR,
+        batch_size: int = SBERT_BATCH_SIZE,
+        resume: bool = True,
+    ) -> tuple:
         """Generate embeddings for given tracks."""
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         metadata_path = output_dir / "metadata_texts.csv"
-        
+
         if resume and metadata_path.exists():
             print("Loading existing metadata strings...")
             df_meta = pd.read_csv(metadata_path, index_col=0)
         else:
             print("Building metadata strings...")
             df_meta = build_metadata_strings()
-            
+
         # Filter to requested track IDs
         available_ids = [tid for tid in track_ids if tid in df_meta.index]
         text_data = df_meta.loc[available_ids, "metadata_text"].tolist()
-        
+
         if not text_data:
             logger.warning("No metadata found for requested track IDs.")
             return np.array([]), []
@@ -51,7 +56,7 @@ class SentenceBERTEmbeddingGenerator(EmbeddingGenerator):
             batch_size=batch_size,
             show_progress_bar=True,
             normalize_embeddings=True,
-            convert_to_numpy=True
+            convert_to_numpy=True,
         )
 
         # Validate L2 norms
@@ -66,7 +71,7 @@ class SentenceBERTEmbeddingGenerator(EmbeddingGenerator):
         # Save final outputs
         np.save(output_dir / "sbert_embeddings.npy", embeddings)
         np.save(output_dir / "sbert_track_ids.npy", np.array(available_ids))
-        
+
         logger.info(f"Saved {len(available_ids)} SBERT embeddings to {output_dir}")
         return embeddings, available_ids
 
@@ -78,4 +83,6 @@ class SentenceBERTEmbeddingGenerator(EmbeddingGenerator):
 
     def embed_text(self, queries: list) -> np.ndarray:
         """Embed text queries for retrieval."""
-        return self.model.encode(queries, normalize_embeddings=True, convert_to_numpy=True)
+        return self.model.encode(
+            queries, normalize_embeddings=True, convert_to_numpy=True
+        )

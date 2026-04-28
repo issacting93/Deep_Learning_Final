@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import laion_clap
 
-from src.config import PROCESSED_DIR, FMA_SMALL_DIR, CLAP_BATCH_SIZE
+from src.config import PROCESSED_DIR, CLAP_BATCH_SIZE
 from src.audio_utils import get_audio_path, discover_valid_tracks
 from src.embeddings.base import EmbeddingGenerator
 
@@ -17,12 +17,19 @@ class CLAPEmbeddingGenerator(EmbeddingGenerator):
 
     def __init__(self, enable_fusion: bool = False):
         logger.info("Loading LAION-CLAP model...")
-        self.model = laion_clap.CLAP_Module(enable_fusion=enable_fusion, amodel="HTSAT-tiny")
+        self.model = laion_clap.CLAP_Module(
+            enable_fusion=enable_fusion, amodel="HTSAT-tiny"
+        )
         self.model.load_ckpt()
         logger.info("CLAP model ready.")
 
-    def generate(self, track_ids: list, output_dir: Path = PROCESSED_DIR,
-                 batch_size: int = CLAP_BATCH_SIZE, resume: bool = True) -> tuple:
+    def generate(
+        self,
+        track_ids: list,
+        output_dir: Path = PROCESSED_DIR,
+        batch_size: int = CLAP_BATCH_SIZE,
+        resume: bool = True,
+    ) -> tuple:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         batch_dir = output_dir / "clap_batches"
@@ -41,7 +48,9 @@ class CLAPEmbeddingGenerator(EmbeddingGenerator):
             logger.info(f"Resuming: {len(completed_batches)} batches already done.")
 
         # Process in batches
-        batches = [valid_ids[i:i + batch_size] for i in range(0, len(valid_ids), batch_size)]
+        batches = [
+            valid_ids[i : i + batch_size] for i in range(0, len(valid_ids), batch_size)
+        ]
 
         for batch_idx, batch_ids in enumerate(batches):
             if batch_idx in completed_batches:
@@ -69,7 +78,9 @@ class CLAPEmbeddingGenerator(EmbeddingGenerator):
             )
             completed_batches.add(batch_idx)
             self._save_progress(progress_file, completed_batches)
-            logger.info(f"Batch {batch_idx + 1}/{len(batches)} done ({len(batch_ids)} tracks).")
+            logger.info(
+                f"Batch {batch_idx + 1}/{len(batches)} done ({len(batch_ids)} tracks)."
+            )
 
         # Consolidate
         return self._consolidate(batch_dir, output_dir)

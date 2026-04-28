@@ -1,5 +1,4 @@
 import logging
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -49,16 +48,15 @@ class FaissIndex:
         ids_path = path.with_suffix(".ids.npy")
 
         # Write index to temp file, then atomically rename
-        with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".faiss.tmp", delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-        faiss.write_index(self.index, str(tmp_path))
-        tmp_path.replace(path)
+        tmp_index = path.parent / (path.name + ".tmp")
+        faiss.write_index(self.index, str(tmp_index))
+        tmp_index.replace(path)
 
-        # Same for IDs
-        with tempfile.NamedTemporaryFile(dir=ids_path.parent, suffix=".npy.tmp", delete=False) as tmp:
-            tmp_ids_path = Path(tmp.name)
-        np.save(tmp_ids_path, np.array(self.track_ids))
-        tmp_ids_path.replace(ids_path)
+        # np.save auto-appends .npy, so use a name without .npy suffix
+        tmp_ids = path.parent / (ids_path.stem + ".tmp")
+        np.save(tmp_ids, np.array(self.track_ids))
+        # np.save created tmp_ids.npy — rename to final destination
+        Path(str(tmp_ids) + ".npy").replace(ids_path)
 
     @classmethod
     def load(cls, path: Path, metric: str = "cosine"):

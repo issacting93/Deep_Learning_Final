@@ -114,12 +114,13 @@ class TestEmbeddingNorms:
         not (PROCESSED_DIR / "openl3_embeddings.npy").exists(),
         reason="OpenL3 embeddings not generated yet",
     )
-    def test_openl3_embeddings_normalized(self):
+    def test_openl3_embeddings_finite(self):
+        """OpenL3 outputs raw (unnormalized) embeddings; app.py normalizes on load.
+        Here we just verify they are finite and non-zero."""
         embs = np.load(PROCESSED_DIR / "openl3_embeddings.npy")
+        assert np.all(np.isfinite(embs)), "OpenL3 embeddings contain NaN/Inf"
         norms = np.linalg.norm(embs, axis=1)
-        assert np.allclose(norms, 1.0, atol=0.05), (
-            f"OpenL3 norms out of range: {norms.min():.4f}–{norms.max():.4f}"
-        )
+        assert (norms > 0).all(), "OpenL3 embeddings contain zero vectors"
 
 
 # ── Config Tests ─────────────────────────────────────────────────────────────

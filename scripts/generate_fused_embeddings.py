@@ -26,8 +26,8 @@ load_dotenv(PROJECT_ROOT / ".env")
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-TRACK_IDS_PATH = PROJECT_ROOT / "openl3_track_ids.npy"
-OPENL3_EMB_PATH = PROJECT_ROOT / "openl3_embeddings.npy"
+TRACK_IDS_PATH = PROCESSED_DIR / "openl3_track_ids.npy"
+OPENL3_EMB_PATH = PROCESSED_DIR / "openl3_embeddings.npy"
 TRACKS_CSV = FMA_METADATA_DIR / "tracks.csv"
 
 OUTPUT_DIR = PROCESSED_DIR / "lyrics_enriched"
@@ -171,6 +171,10 @@ def fuse_embeddings(
 
     s = sbert_emb[s_idx].astype(np.float32)
     o = openl3_emb[o_idx].astype(np.float32)
+
+    # Mean-center to remove the DC offset from both spaces
+    s = s - s.mean(axis=0)
+    o = o - o.mean(axis=0)
 
     # L2-normalise each modality
     faiss.normalize_L2(s)

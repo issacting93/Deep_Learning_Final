@@ -21,7 +21,6 @@ This project builds a **multi-view retrieval system** over the [Free Music Archi
 | 1. Vibe/Text Search | CLAP (HTSAT-tiny) | 512 | Audio waveform | High-level semantics: mood, genre feel, instrument presence |
 | 2. Lyrics/Semantic Search | SBERT (all-MiniLM-L6-v2) | 384 | Metadata + lyrics | Textual semantics: artist identity, lyrical content, descriptive tags |
 | 3. Acoustic Similarity | OpenL3 | 512 | Audio waveform | Low-level acoustics: timbre, rhythm, texture |
-| 4. Graph Recommendation | HeteroGNN (SAGEConv) | 256 | Track-artist-genre graph | Structural connectivity: co-genre relationships, artist similarity |
 
 ### Why multiple views?
 
@@ -31,12 +30,19 @@ SBERT and OpenL3 share only **5.6% overlap** in their top-20 neighbors (Spearman
 
 ```text
 Role 1 — Wenny  (OpenL3 Acoustic)    ──┐
-Role 2 — Sid & Issac (SBERT Lyrics)  ──┤
-Role 3 — Archive (GNN Graph)         ──┼──> Role 4 — Jiayi (Evaluation & Fusion) ──> Final System
+Role 2 — Sid & Issac (SBERT Lyrics)  ──┼──> Role 4 — Jiayi (Evaluation & Fusion) ──> Final System
 Role 5 — Helena (Fine-tuned CLAP)    ──┘
 ```
 
 All embedding generators subclass `src/embeddings/base.py:EmbeddingGenerator` with a shared `generate()` / `load_embeddings()` interface. All FAISS indices use the same `src/indexing/faiss_index.py` wrapper. This ensures any view can be swapped in or out of the fusion layer without code changes.
+
+### Fusion Strategies
+To combine independent embedding spaces, we employ two different mathematical strategies to prevent any single modality from unfairly dominating the results due to dimensionality or DC offsets.
+
+1. **Vector-Level Early Fusion (Weighted Concatenation):**
+   Used in `scripts/generate_fused_embeddings.py`. To create a single offline search index, the OpenL3 and SBERT vectors are first **mean-centered** to remove the native OpenL3 DC offset (which otherwise causes cosine similarities to artificially group near `0.98`). They are then L2-normalized, weighted (e.g., 50/50), concatenated into an 896-d vector, and L2-normalized again.
+2. **Rank-Level Late Fusion (Reciprocal Rank Fusion):**
+   Used in the live Flask application (`app.py`). Rather than merging the vectors, the system queries each view (CLAP, SBERT, OpenL3) independently. The resulting tracks are scored using Reciprocal Rank Fusion ($Score = \frac{1}{60 + rank}$), creating a robust final leaderboard that gracefully handles edge cases where a single view hallucinates. Mean-centering is also applied at runtime to ensure raw cosine similarity metrics display cleanly on the frontend.
 
 ## Results
 
@@ -81,26 +87,20 @@ OpenL3 performs best because both it and Echo Nest operate in the acoustic domai
 
 **Caveat**: The 294-track Echo Nest overlap is not uniformly distributed across genres (Folk and Hip-Hop are over-represented at ~21% each vs. 12.5% expected; Experimental is under-represented at 1.4%).
 
-### GNN Graph Recommendation (View 4)
 
-A 2-layer heterogeneous GNN (SAGEConv) trained on a track-artist-genre graph via link prediction. Produces 256-d track embeddings capturing structural connectivity. A Flask web demo (`role3_graph_archive/app.py`) provides interactive search at `localhost:5050`.
+## Team Contributions
 
-## Team Roles
+### Acoustic Similarity — Wenny
+Generated OpenL3 embeddings (512-d) for audio-to-audio retrieval. Compared clustering with CLAP to understand where acoustic and semantic views agree/disagree.
 
-### Role 1: Acoustic Similarity — Wenny
-Generate OpenL3 embeddings (512-d) for audio-to-audio retrieval. Compare clustering with CLAP to understand where acoustic and semantic views agree/disagree.
+### Lyrics & Semantic Search — Sid & Issac
+Generated SBERT embeddings from metadata + Genius lyrics. Identified and fixed genre leakage in input strings and tags. Representation analysis: semantic robustness, lexical bias, truncation impact. (See `reports/sid_issac_lyrics_report.md`).
 
-### Role 2: Lyrics & Semantic Search — Sid & Issac
-SBERT embeddings from metadata + Genius lyrics. Identified and fixed genre leakage in input strings and tags. Representation analysis: semantic robustness (10% overlap between "lonely" vs "isolated"), lexical bias, truncation impact. See `role2_lyrics_sid_issac/REPORT.md`.
+### Evaluation & Fusion — Jiayi
+Built evaluation framework (P@K, Recall@K, MAP, NDCG) and fusion methods (weighted sum, reciprocal rank fusion, learned reranker).
 
-### Role 3: Graph Recommendation — Archive
-Heterogeneous GNN over track-artist-genre graph. Complete with FAISS index and web demo. See `role3_graph_archive/`.
-
-### Role 4: Evaluation & Fusion — Jiayi
-Evaluation framework (P@K, Recall@K, MAP, NDCG) and fusion methods (weighted sum, reciprocal rank fusion, learned reranker). Note: genre-based ground truth must account for the leakage fix — genre is excluded from SBERT input, so genre-based evaluation is now fair.
-
-### Role 5: Fine-tuning & Deep Analysis — Helena
-Fine-tune CLAP on FMA with contrastive learning. Before/after comparison of embeddings, Echo Nest feature correlation, failure analysis.
+### Fine-tuning & Deep Analysis — Helena
+Fine-tuned CLAP on FMA with contrastive learning. Conducted before/after comparison of embeddings, Echo Nest feature correlation, and failure analysis.
 
 ## Directory Structure
 
@@ -110,31 +110,26 @@ Fine-tune CLAP on FMA with contrastive learning. Before/after comparison of embe
 │   ├── fma_metadata/            # tracks.csv, genres.csv, echonest.csv
 │   └── processed/               # Embeddings, FAISS indices, visualisations
 │       └── lyrics_enriched/     # Genre-free SBERT + fused embeddings
-├── models/                      # Checkpoints (gnn_checkpoint.pt)
+├── evaluation/                  # Nearest-neighbor genre-consistency tests
 ├── notebooks/
 │   ├── 01_eda.ipynb                       # Dataset exploration
 │   ├── 02_clap_retrieval_demo.ipynb       # Text-to-music search demo
 │   ├── 03_embedding_visualisation.ipynb   # t-SNE, PCA, genre heatmaps
-│   ├── 04_graph_construction_viz.ipynb    # GNN graph structure
-│   ├── sbert_analysis.ipynb               # SBERT representation analysis
-│   ├── semantic_search_demo.ipynb         # SBERT query interface
-│   ├── clap_sbert_overlap.ipynb           # Cross-view comparison
-│   └── echonest_exploration.ipynb         # Echo Nest feature analysis
-├── role1_acoustic_wenny/        # OpenL3 acoustic embedding tasks
-├── role2_lyrics_sid_issac/      # SBERT semantic search + REPORT.md
-├── role3_graph_archive/         # GNN graph recommendation + Flask app
-├── role4_evaluation_jiayi/      # Evaluation & fusion framework
-├── role5_finetune_helena/       # CLAP fine-tuning tasks
+│   ├── 05_clap_sbert_overlap.ipynb        # Cross-view comparison
+│   ├── 06_echonest_exploration.ipynb      # Echo Nest feature analysis
+│   ├── 07_sbert_analysis.ipynb            # SBERT representation analysis
+│   └── 08_semantic_search_demo.ipynb      # SBERT query interface
+├── reports/                     # Presentations, writeups, and final reports
 ├── scripts/
 │   ├── download_fma.py                    # Download FMA dataset
 │   ├── audit_metadata.py                  # Cross-reference metadata vs audio
 │   ├── generate_clap_embeddings.py        # CLAP embedding pipeline (CLI)
 │   ├── generate_sbert_embeddings.py       # SBERT embedding pipeline
+│   ├── generate_fused_embeddings.py       # Lyrics-enriched SBERT + OpenL3 fusion
 │   ├── build_faiss_index.py               # Build FAISS indices
 │   ├── encode_2000_tracks.py              # Encode 2,000-track subset
 │   ├── analyze_sbert_robustness.py        # Representation robustness tests
-│   ├── openl3_vs_sbert_overlap.py         # Cross-view overlap analysis
-│   └── generate_gnn_visuals.py            # GNN graph visualisations
+│   └── openl3_vs_sbert_overlap.py         # Cross-view overlap analysis
 ├── src/
 │   ├── config.py                # Paths, constants, device selection
 │   ├── metadata.py              # FMA metadata loading and filtering
@@ -145,18 +140,133 @@ Fine-tune CLAP on FMA with contrastive learning. Before/after comparison of embe
 │   │   ├── base.py              # Abstract EmbeddingGenerator interface
 │   │   ├── clap.py              # CLAP pipeline (batched, checkpointed)
 │   │   └── sbert.py             # Sentence-BERT pipeline
-│   ├── graph/
-│   │   ├── build_graph.py       # Heterogeneous graph construction
-│   │   ├── gnn_model.py         # 2-layer HeteroGNN (SAGEConv)
-│   │   └── train.py             # Link prediction training
 │   └── indexing/
 │       └── faiss_index.py       # FAISS index wrapper (cosine + L2)
-├── text_to_text_SBERT_FMA_GENIUS_2.py   # Lyrics-enriched SBERT + OpenL3 fusion
 ├── .env                         # API keys (gitignored)
 ├── Dockerfile                   # Deployment container
 ├── requirements.txt
+├── app.py                       # Main Flask web application / demo
 └── README.md
 ```
+
+## Adding a New Model
+
+Every retrieval view follows the same pattern: generate two `.npy` files (embeddings + track IDs), then plug them into the app. Here's the standard workflow.
+
+### Important: The 2,000-Track Canonical Subset
+
+All existing views (SBERT, OpenL3, CLAP) share a common 2,000-track subset. The canonical list of track IDs lives in:
+
+```
+data/processed/openl3_track_ids.npy    # (2000,) int array — the source of truth
+```
+
+This file was created when OpenL3 embeddings were first generated over FMA small (~8,000 tracks). Every downstream pipeline — SBERT, CLAP, fusion, and evaluation — loads these IDs and generates embeddings **only for these 2,000 tracks**. The app computes the intersection of all views at startup (see `app.py:90-96`), so any tracks missing from your new model are simply excluded.
+
+**When adding a new model, always load these IDs as your target set** to ensure your embeddings align with the rest of the system.
+
+### 1. Implement the embedding generator
+
+Subclass `src/embeddings/base.py:EmbeddingGenerator`:
+
+```python
+# src/embeddings/my_model.py
+from src.embeddings.base import EmbeddingGenerator
+
+class MyModelEmbeddingGenerator(EmbeddingGenerator):
+    def generate(self, track_ids, output_dir, batch_size=32, resume=True):
+        # Load your model, process tracks, save checkpoints
+        # Return: (embeddings: np.ndarray, valid_ids: list)
+        ...
+
+    def load_embeddings(self, output_dir):
+        embeddings = np.load(output_dir / "mymodel_embeddings.npy")
+        track_ids = np.load(output_dir / "mymodel_track_ids.npy").tolist()
+        return embeddings, track_ids
+```
+
+The two output files must satisfy:
+- `mymodel_embeddings.npy` — shape `(N, D)`, float32
+- `mymodel_track_ids.npy` — shape `(N,)`, integer track IDs aligned row-by-row with the embeddings
+
+### 2. Write a generation script
+
+Load the canonical 2,000 track IDs and generate embeddings for that set:
+
+```python
+# scripts/generate_mymodel_embeddings.py
+import numpy as np
+from src.config import PROCESSED_DIR
+from src.embeddings.my_model import MyModelEmbeddingGenerator
+
+# Load the canonical 2,000-track subset (shared across all views)
+track_ids = np.load(PROCESSED_DIR / "openl3_track_ids.npy").astype(int).tolist()
+print(f"Target: {len(track_ids)} tracks from canonical subset")
+
+generator = MyModelEmbeddingGenerator()
+embeddings, valid_ids = generator.generate(track_ids, PROCESSED_DIR)
+
+# Save with standardized naming
+np.save(PROCESSED_DIR / "mymodel_embeddings.npy", embeddings)
+np.save(PROCESSED_DIR / "mymodel_track_ids.npy", np.array(valid_ids))
+print(f"Saved {len(valid_ids)}/{len(track_ids)} tracks")
+```
+
+Run it: `python scripts/generate_mymodel_embeddings.py`
+
+If your model can't process some tracks (e.g., corrupt audio), `valid_ids` will be shorter than 2,000. That's fine — `app.py` intersects all views at startup and only serves tracks present in every view.
+
+### 3. Sanity check the embeddings
+
+Before going further, verify the output:
+
+```python
+import numpy as np
+emb = np.load("data/processed/mymodel_embeddings.npy")
+ids = np.load("data/processed/mymodel_track_ids.npy")
+canonical = set(np.load("data/processed/openl3_track_ids.npy").astype(int))
+
+assert emb.ndim == 2 and ids.ndim == 1
+assert emb.shape[0] == ids.shape[0]
+assert np.isfinite(emb).all()
+assert set(ids.astype(int)).issubset(canonical), "IDs outside canonical subset!"
+print(f"Shape: {emb.shape}, IDs: {len(ids)}/{len(canonical)} canonical tracks covered")
+```
+
+### 4. Build a FAISS index (optional)
+
+```python
+from src.indexing.faiss_index import FaissIndex
+index = FaissIndex(dimension=emb.shape[1], metric="cosine")
+index.build(emb, ids.tolist())
+index.save("data/processed/mymodel_faiss.index")
+```
+
+### 5. Add the view to `app.py`
+
+One line in the `VIEWS` dict:
+
+```python
+VIEWS = {
+    "sbert":   load_view("SBERT (Text)",   PROCESSED_DIR / "sbert_embeddings.npy",   PROCESSED_DIR / "sbert_track_ids.npy"),
+    "openl3":  load_view("OpenL3 (Audio)",  PROCESSED_DIR / "openl3_embeddings.npy",  PROCESSED_DIR / "openl3_track_ids.npy"),
+    "clap":    load_view("CLAP (Vibe)",     PROCESSED_DIR / "clap_embeddings.npy",    PROCESSED_DIR / "clap_track_ids.npy"),
+    "mymodel": load_view("MyModel (Label)", PROCESSED_DIR / "mymodel_embeddings.npy", PROCESSED_DIR / "mymodel_track_ids.npy"),
+}
+```
+
+`load_view` handles mean-centering, L2-normalization, and ID mapping automatically. The new view will appear in per-view recommendations and be included in RRF fusion with no other code changes.
+
+### 6. Evaluate
+
+Run the genre-consistency benchmark in `Evaluation/` to compare against existing models:
+
+```bash
+cd Evaluation
+python3 evaluate_genre_retrieval.py --root . --num-samples -1 --seed 42
+```
+
+You'll need to add your `.npy` files to the `Evaluation/` directory and add a loader entry in the script's `models` list.
 
 ## Setup
 
@@ -174,12 +284,12 @@ python scripts/generate_clap_embeddings.py --limit 100 # test run
 
 # Generate lyrics-enriched SBERT + fused embeddings
 export GENIUS_API_KEY="your-key"  # or add to .env
-python text_to_text_SBERT_FMA_GENIUS_2.py              # full pipeline
-python text_to_text_SBERT_FMA_GENIUS_2.py --skip-lyrics # reuse cached lyrics
+python scripts/generate_fused_embeddings.py              # full pipeline
+python scripts/generate_fused_embeddings.py --skip-lyrics # reuse cached lyrics
 
 # Build FAISS indices
 python scripts/build_faiss_index.py
 
-# Launch GNN web demo
-python role3_graph_archive/app.py  # http://localhost:5050
+# Launch web demo
+python app.py  # http://localhost:5050
 ```

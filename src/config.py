@@ -28,8 +28,9 @@ MAX_CO_GENRE_EDGES = 200_000  # cap co-genre edges to prevent memory explosion
 
 # GNN (Role 3 — Issac)
 GNN_HIDDEN_DIM = 256
-GNN_OUT_DIM    = 256
-GNN_EPOCHS     = 30
+GNN_OUT_DIM = 256
+GNN_EPOCHS = 30
+
 
 # Device selection
 def get_device():
@@ -38,5 +39,6 @@ def get_device():
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         return "cpu"  # MPS has incomplete op support for CLAP
     return "cpu"
+
 
 DEVICE = get_device()
