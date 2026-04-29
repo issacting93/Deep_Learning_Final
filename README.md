@@ -1,10 +1,30 @@
 # Multi-Faceted Music Retrieval
 
-## Problem
+Issac, Sid, Wenny, Jiayi, Helena
+
+## Introduction
 
 Music retrieval systems typically rely on a single representation of music — either audio features or text metadata. This limits their ability to satisfy diverse user needs: a query like "chill lo-fi vibes" requires understanding musical mood (acoustic), while "songs by folk artists about travel" requires understanding metadata (textual), and "tracks similar to this one I like" requires structural knowledge (graph). No single embedding captures all of these.
 
+We set out to answer: **can fusing multiple independent embedding spaces produce better music recommendations than any single view alone?** The answer is yes — our fused system retrieves neighbors that are 15% closer in acoustic features than text-only retrieval, while maintaining semantic relevance that audio-only models miss.
+
 This project builds a **multi-view retrieval system** over the [Free Music Archive (FMA)](https://github.com/mdeff/fma) dataset, an open-licensed benchmark of 8,000 tracks across 8 top-level genres. Each view produces an independent embedding space, and a fusion layer combines them to outperform any single view.
+
+## Dataset
+
+We use the [Free Music Archive (FMA)](https://github.com/mdeff/fma) — specifically the `fma_small` subset (8,000 tracks, 30s clips, 8 genres) and its metadata (`tracks.csv`, `genres.csv`, `echonest.csv`).
+
+**To download:**
+
+```bash
+python scripts/download_fma.py
+```
+
+This places audio files in `data/fma_small/` (organized as `000/000002.mp3`) and metadata in `data/fma_metadata/`. Total download: ~7.2 GB.
+
+A pre-filtered 2,000-track subset with metadata is included in the repo at `data/fma_2000_metadata/` for evaluation and the web demo. The canonical track IDs for this subset are stored in `data/processed/openl3_track_ids.npy`.
+
+**Lyrics:** Fetched at runtime from the [Genius API](https://genius.com/developers). Requires a `GENIUS_API_KEY` in your `.env` file. Cached lyrics are stored in `data/processed/lyrics_enriched/lyrics_df.csv` so the API only needs to be called once.
 
 ## Definitions
 
@@ -29,9 +49,38 @@ SBERT and OpenL3 share only **5.6% overlap** in their top-20 neighbors (Spearman
 ## Architecture
 
 ```text
-Role 1 — Wenny  (OpenL3 Acoustic)    ──┐
-Role 2 — Sid & Issac (SBERT Lyrics)  ──┼──> Role 4 — Jiayi (Evaluation & Fusion) ──> Final System
-Role 5 — Helena (Fine-tuned CLAP)    ──┘
+                    ┌─────────────────────────────────────────────────────────┐
+                    │                    Input: Audio Track                   │
+                    └────────────┬──────────────────┬──────────────┬──────────┘
+                                 │                  │              │
+                                 ▼                  ▼              ▼
+                    ┌────────────────┐  ┌────────────────┐  ┌──────────────┐
+                    │   CLAP Audio   │  │    OpenL3      │  │   Metadata   │
+                    │  (HTSAT-tiny)  │  │  (Audio CNN)   │  │  + Lyrics    │
+                    └───────┬────────┘  └───────┬────────┘  └──────┬───────┘
+                            │                   │                  │
+                            ▼                   ▼                  ▼
+                    ┌────────────────┐  ┌────────────────┐  ┌──────────────┐
+                    │  512-d embed   │  │  512-d embed   │  │ 384-d embed  │
+                    │ (mood, genre)  │  │ (timbre, rhythm)│  │ (semantic)  │
+                    └───────┬────────┘  └───────┬────────┘  └──────┬───────┘
+                            │                   │                  │
+                            ▼                   ▼                  ▼
+                    ┌────────────────────────────────────────────────────────┐
+                    │              FAISS Nearest-Neighbor Search             │
+                    │            (IndexFlatIP — cosine similarity)           │
+                    └───────┬───────────────────┬──────────────────┬─────────┘
+                            │                   │                  │
+                            ▼                   ▼                  ▼
+                    ┌────────────────────────────────────────────────────────┐
+                    │           Reciprocal Rank Fusion (k=60)               │
+                    │         score = Σ  1 / (60 + rank_per_view)           │
+                    └───────────────────────┬────────────────────────────────┘
+                                            │
+                                            ▼
+                                ┌──────────────────────┐
+                                │   Fused Top-K Recs   │
+                                └──────────────────────┘
 ```
 
 All embedding generators subclass `src/embeddings/base.py:EmbeddingGenerator` with a shared `generate()` / `load_embeddings()` interface. All FAISS indices use the same `src/indexing/faiss_index.py` wrapper. This ensures any view can be swapped in or out of the fusion layer without code changes.
@@ -268,14 +317,22 @@ python3 evaluate_genre_retrieval.py --root . --num-samples -1 --seed 42
 
 You'll need to add your `.npy` files to the `Evaluation/` directory and add a loader entry in the script's `models` list.
 
-## Setup
+## Using this Repository
+
+### Requirements
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+```
 
-# Download FMA dataset
+Requires Python 3.9+. Key dependencies: PyTorch, librosa, sentence-transformers, laion-clap, faiss-cpu, Flask.
+
+### Training / Generating Embeddings
+
+```bash
+# Download FMA dataset (~7.2 GB)
 python scripts/download_fma.py
 
 # Generate CLAP embeddings
@@ -289,7 +346,36 @@ python scripts/generate_fused_embeddings.py --skip-lyrics # reuse cached lyrics
 
 # Build FAISS indices
 python scripts/build_faiss_index.py
-
-# Launch web demo
-python app.py  # http://localhost:5050
 ```
+
+Precomputed embeddings and FAISS indices are included in `data/processed/`, so you can skip straight to running the demo.
+
+### Running the Demo
+
+```bash
+python app.py  # http://localhost:5001
+```
+
+The web app lets you search for any track, then shows side-by-side recommendations from each view (CLAP, SBERT, OpenL3) and the fused result.
+
+For notebook-based demos, see:
+- `notebooks/02_clap_retrieval_demo.ipynb` — text-to-music search (type a description, get songs)
+- `notebooks/08_semantic_search_demo.ipynb` — SBERT metadata/lyrics search
+
+## References
+
+### Models
+
+- **CLAP (Contrastive Language-Audio Pretraining):** Wu et al., "Large-Scale Contrastive Language-Audio Pretraining with Feature Fusion and Keyword-to-Caption Augmentation," ICASSP 2023. Code: [LAION-AI/CLAP](https://github.com/LAION-AI/CLAP)
+- **SBERT (Sentence-BERT):** Reimers & Gurevych, "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks," EMNLP 2019. Model: `all-MiniLM-L6-v2` via [sentence-transformers](https://github.com/UKPLab/sentence-transformers)
+- **OpenL3:** Cramer et al., "Look, Listen, and Learn More: Design Choices for Deep Audio Embeddings," ICASSP 2019. Code: [marl/openl3](https://github.com/marl/openl3)
+
+### Dataset
+
+- **FMA (Free Music Archive):** Defferrard et al., "FMA: A Dataset for Music Analysis," ISMIR 2017. [GitHub](https://github.com/mdeff/fma)
+- **Genius API:** Used for lyrics retrieval. [genius.com/developers](https://genius.com/developers)
+
+### Libraries
+
+- **FAISS:** Johnson et al., "Billion-Scale Similarity Search with GPUs," IEEE Transactions on Big Data, 2019. [GitHub](https://github.com/facebookresearch/faiss)
+- **Reciprocal Rank Fusion:** Cormack et al., "Reciprocal Rank Fusion outperforms Condorcet and individual Rank Learning Methods," SIGIR 2009
