@@ -46,6 +46,20 @@ A pre-filtered 2,000-track subset with metadata is included in the repo at `data
 
 SBERT and OpenL3 share only **5.6% overlap** in their top-20 neighbors (Spearman rho = -0.77). This means the two modalities retrieve almost entirely different tracks for the same query — they are complementary, not redundant. Fusion combines these independent signals to improve retrieval quality.
 
+#### Embedding Space Comparison (All Views)
+
+**t-SNE clustering** — CLAP forms the tightest genre clusters, SBERT is more diffuse (semantic ≠ genre), OpenL3 separates by acoustic texture:
+
+![t-SNE Genre Clustering: CLAP vs SBERT vs OpenL3](data/processed/viz/tsne_comparison_3panel.png)
+
+**PCA projection** — first two principal components capture 18.5% variance for CLAP but only 8.9% for SBERT, confirming SBERT distributes information more uniformly:
+
+![PCA Genre Clustering: CLAP vs SBERT vs OpenL3](data/processed/viz/pca_comparison_3panel.png)
+
+**Genre centroid similarity** — CLAP shows strong negative off-diagonals (genres well-separated), SBERT is flatter (text metadata doesn't cleanly separate genres), OpenL3 shows acoustic groupings (Hip-Hop/Pop cluster together):
+
+![Genre Centroid Similarity: CLAP vs SBERT vs OpenL3](data/processed/viz/heatmap_comparison_3panel.png)
+
 ## Architecture
 
 ```text
@@ -113,6 +127,12 @@ Cosine similarity ranges from -1 to 1; scores above 0.4 indicate strong matches 
 - Most distinct: Rock and Electronic (0.64)
 - PCA: 50 components capture ~85% of variance across 512 dimensions
 
+![CLAP: t-SNE Clustering by Genre](data/processed/viz/tsne_clap.png)
+
+![CLAP: PCA Clustering by Genre](data/processed/viz/pca_clap.png)
+
+![CLAP: Genre Centroid Cosine Similarity](data/processed/viz/heatmap_clap.png)
+
 ### SBERT Semantic Search (View 2)
 
 SBERT (Sentence-BERT) is a siamese network fine-tuned on NLI/paraphrase data to produce 384-d sentence embeddings. We embed track metadata (title, artist, filtered tags) and lyrics fetched from the Genius API.
@@ -120,6 +140,12 @@ SBERT (Sentence-BERT) is a siamese network fine-tuned on NLI/paraphrase data to 
 **Data leakage fix**: The original input strings included `genre_top` directly, which would inflate any genre-based evaluation. We also found that 48.8% of non-empty `tags` fields contain genre-like labels. Both were removed — genre is used only as evaluation ground truth, never as model input.
 
 **PCA**: The embedding space is highly distributed — 181 components needed for 90% variance (vs. 50 for CLAP's 512-d space). This suggests SBERT utilises its dimensions more uniformly, spreading information across the full 384-d space.
+
+![SBERT: t-SNE Clustering by Genre](data/processed/viz/tsne_sbert.png)
+
+![SBERT: PCA Clustering by Genre](data/processed/viz/pca_sbert.png)
+
+![SBERT: Genre Centroid Cosine Similarity](data/processed/viz/heatmap_sbert.png)
 
 ### Echo Nest Evaluation (Independent Ground Truth)
 
@@ -133,6 +159,8 @@ To evaluate retrieval quality without genre leakage, we measured whether each vi
 | **OpenL3 (Audio)** | **2.87** | **-24.3%** | **1.8e-21** |
 
 OpenL3 performs best because both it and Echo Nest operate in the acoustic domain. Fused embeddings outperform either modality alone, confirming that text and audio provide complementary signals. All differences are statistically significant (paired t-test, N=294).
+
+![Retrieval Quality: Echo Nest Audio Feature Similarity](data/processed/lyrics_enriched/echonest_evaluation.png)
 
 **Caveat**: The 294-track Echo Nest overlap is not uniformly distributed across genres (Folk and Hip-Hop are over-represented at ~21% each vs. 12.5% expected; Experimental is under-represented at 1.4%).
 
