@@ -33,7 +33,7 @@ from src.audio_utils import get_audio_path
 # ─────────────────────────────────────────────────────────────────────────────
 # Load metadata
 # ─────────────────────────────────────────────────────────────────────────────
-print("Loading FMA metadata...")
+logger.info("Loading FMA metadata...")
 tracks_df = load_tracks()
 small_ids = set(get_small_subset_ids(tracks_df))
 tracks_s = tracks_df[tracks_df.index.isin(small_ids)].copy()
@@ -72,14 +72,17 @@ def load_view(name, emb_file, ids_file):
             f"{name}: embeddings not normalized "
             f"(norm range {norms.min():.4f}–{norms.max():.4f}), renormalizing."
         )
-    norms[norms == 0] = 1
-    embs = embs / norms
+    # Skip zero-norm vectors (degenerate embeddings) and use epsilon for safety
+    zero_mask = (norms < 1e-10).flatten()
+    if zero_mask.any():
+        logger.warning(f"{name}: {zero_mask.sum()} zero-norm embeddings detected, skipping them.")
+    embs = embs / (norms + 1e-8)
     id_to_idx = {int(tid): i for i, tid in enumerate(ids)}
     logger.info(f"  {name}: {embs.shape[0]} tracks, {embs.shape[1]}-d")
     return {"name": name, "embeddings": embs, "ids": ids, "id_to_idx": id_to_idx}
 
 
-print("Loading embeddings...")
+logger.info("Loading embeddings...")
 VIEWS = {
     "sbert":  load_view("SBERT (Text)",    PROCESSED_DIR / "sbert_embeddings.npy",  PROCESSED_DIR / "sbert_track_ids.npy"),
     "openl3": load_view("OpenL3 (Audio)",   PROCESSED_DIR / "openl3_embeddings.npy", PROCESSED_DIR / "openl3_track_ids.npy"),
@@ -118,7 +121,7 @@ GENRE_COLOURS = {
     "Rock":         "#f97316",
 }
 
-print("Ready.\n")
+logger.info("Ready.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -214,10 +217,19 @@ def search():
     return jsonify(results)
 
 
+@app.errorhandler(500)
+def internal_error(e):
+    logger.exception("Internal server error")
+    return jsonify({"error": "Internal server error"}), 500
+
+
 @app.route("/api/tracks")
 def list_tracks():
-    page = int(request.args.get("page", 1))
-    per_page = int(request.args.get("per_page", 50))
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        per_page = max(1, min(int(request.args.get("per_page", 50)), 200))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid page or per_page parameter"}), 400
     genre = request.args.get("genre", "").strip()
     filtered = TRACK_LIST
     if genre:
@@ -233,7 +245,12 @@ def list_tracks():
 
 @app.route("/api/recommend/<int:track_id>")
 def get_recommendations(track_id):
-    k = max(3, min(int(request.args.get("k", 8)), 20))
+    if track_id not in COMMON_SET:
+        return jsonify({"error": f"Track {track_id} not found in dataset"}), 404
+    try:
+        k = max(3, min(int(request.args.get("k", 8)), 20))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid k parameter"}), 400
     result = {}
     for key, view in VIEWS.items():
         result[key] = {
@@ -252,9 +269,11 @@ def get_recommendations(track_id):
 
 @app.route("/api/audio/<int:track_id>")
 def serve_audio(track_id):
+    if track_id not in COMMON_SET:
+        return jsonify({"error": f"Track {track_id} not found in dataset"}), 404
     path = get_audio_path(track_id)
     if not path.exists():
-        return jsonify({"error": "Audio not found"}), 404
+        return jsonify({"error": "Audio file not found on disk"}), 404
     return send_from_directory(str(path.parent), path.name, mimetype="audio/mpeg")
 
 
