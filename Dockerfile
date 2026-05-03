@@ -17,4 +17,4 @@ COPY . .
 EXPOSE 5050
 
 # Run Gunicorn
-CMD ["gunicorn", "-w", "4", "--timeout", "120", "-b", "0.0.0.0:5050", "role3_graph_issac.app:app"]
+CMD ["gunicorn", "-w", "4", "--timeout", "120", "-b", "0.0.0.0:5050", "app:app"]

@@ -27,5 +27,9 @@ models/*.bin
 # OS
 .DS_Store
 
+# AI Tools
+.claude/
+.anthropic/
+
 # Environment
 .env

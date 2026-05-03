@@ -159,6 +159,7 @@ Fine-tuned CLAP on FMA with contrastive learning. Conducted before/after compari
 │   ├── fma_metadata/            # tracks.csv, genres.csv, echonest.csv
 │   └── processed/               # Embeddings, FAISS indices, visualisations
 │       └── lyrics_enriched/     # Genre-free SBERT + fused embeddings
+├── docs/                        # Project documentation and guides
 ├── evaluation/                  # Nearest-neighbor genre-consistency tests
 ├── notebooks/
 │   ├── 01_eda.ipynb                       # Dataset exploration
@@ -191,6 +192,7 @@ Fine-tuned CLAP on FMA with contrastive learning. Conducted before/after compari
 │   │   └── sbert.py             # Sentence-BERT pipeline
 │   └── indexing/
 │       └── faiss_index.py       # FAISS index wrapper (cosine + L2)
+├── tests/                       # Pytest test suite
 ├── .env                         # API keys (gitignored)
 ├── Dockerfile                   # Deployment container
 ├── requirements.txt
@@ -361,6 +363,20 @@ The web app lets you search for any track, then shows side-by-side recommendatio
 For notebook-based demos, see:
 - `notebooks/02_clap_retrieval_demo.ipynb` — text-to-music search (type a description, get songs)
 - `notebooks/08_semantic_search_demo.ipynb` — SBERT metadata/lyrics search
+
+## Documentation
+
+### Model Documentation (per-view)
+
+- **[CLAP (View 1)](docs/CLAP.md)** — Contrastive Language-Audio Pretraining. Architecture, cross-modal retrieval, text-to-audio search, generation pipeline.
+- **[SBERT (View 2)](docs/SBERT.md)** — Sentence-BERT semantic search. Metadata/lyrics encoding, data leakage prevention, Genius API integration, robustness analysis.
+- **[OpenL3 (View 3)](docs/OpenL3.md)** — Acoustic similarity. Self-supervised audio embeddings, mean-centering rationale, cross-view complementarity analysis.
+
+### System Documentation
+
+- **[API Reference](docs/API.md)** — REST endpoint specifications, request/response formats, and fusion algorithm.
+- **[Development Guide](docs/DEVELOPMENT.md)** — Setup, testing, code conventions, Docker, and architecture decisions.
+- **[Evaluation Methodology](docs/EVALUATION.md)** — Metrics, data leakage prevention, and how to reproduce results.
 
 ## References
 

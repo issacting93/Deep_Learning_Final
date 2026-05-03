@@ -32,3 +32,9 @@ seaborn==0.13.0
 # Server Deployment
 flask==3.0.0
 gunicorn==21.2.0
+
+# Lyrics
+lyricsgenius==3.0.1
+
+# Testing
+pytest==7.4.3
