@@ -38,7 +38,7 @@ def main():
     
     # 3. Generate embeddings
     # We use a custom call to ensure we only target these 2000 IDs
-    print(f"Generating SBERT embeddings for {len(track_ids)} tracks...")
+    logger.info(f"Generating SBERT embeddings for {len(track_ids)} tracks...")
     embeddings, valid_ids = generator.generate(track_ids, output_dir=PROCESSED_DIR)
     
     if len(valid_ids) == 0:
@@ -67,15 +67,15 @@ def main():
     
     # Load metadata for display
     tracks_meta = load_tracks(FMA_METADATA_DIR)
-    print(f"\nResults for '{query}':")
+    logger.info(f"Results for '{query}':")
     for tid, score in results:
         try:
             row = tracks_meta.loc[tid]
             title = row[('track', 'title')]
             artist = row[('artist', 'name')]
-            print(f"- {tid}: {title} by {artist} (Score: {score:.4f})")
-        except:
-            print(f"- {tid}: (Metadata missing) (Score: {score:.4f})")
+            logger.info(f"- {tid}: {title} by {artist} (Score: {score:.4f})")
+        except KeyError:
+            logger.info(f"- {tid}: (Metadata missing) (Score: {score:.4f})")
 
 if __name__ == "__main__":
     main()

@@ -1,7 +1,10 @@
+import logging
 import pandas as pd
 import re
 from src.config import PROCESSED_DIR, FMA_METADATA_DIR
 from src.metadata import load_tracks, get_small_subset_ids
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_text(s: str) -> str:
@@ -16,14 +19,14 @@ def normalize_text(s: str) -> str:
 
 def build_metadata_strings():
     """Constructs the text string for each track from tracks.csv."""
-    print("Loading tracks metadata...")
+    logger.info("Loading tracks metadata...")
     tracks = load_tracks(FMA_METADATA_DIR)
 
     # Get small subset IDs
     small_ids = get_small_subset_ids(tracks)
     df = tracks.loc[small_ids].copy()
 
-    print(f"Processing {len(df)} tracks...")
+    logger.info(f"Processing {len(df)} tracks...")
 
     # Extract fields with multi-index awareness
     # ('artist', 'name'), ('track', 'title'), ('track', 'genre_top'), ('track', 'tags')
@@ -76,7 +79,7 @@ def build_metadata_strings():
     # Convert to series or simple DF to avoid MultiIndex header issues
     df_out = pd.DataFrame(df["metadata_text"])
     df_out.to_csv(output_path)
-    print(f"Saved metadata texts to {output_path}")
+    logger.info(f"Saved metadata texts to {output_path}")
     return df
 
 

@@ -1,3 +1,4 @@
+import logging
 import pandas as pd
 from lyricsgenius import Genius
 import time
@@ -6,10 +7,36 @@ import os
 from src.config import FMA_METADATA_DIR, PROCESSED_DIR
 from src.metadata import load_tracks, get_small_subset_ids
 
+logger = logging.getLogger(__name__)
+
+MAX_RETRIES = 3
+BASE_DELAY = 0.5  # seconds
+
+
+def _fetch_with_backoff(genius, title_clean, artist):
+    """Fetch lyrics with exponential backoff on failure."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            song = genius.search_song(title_clean, artist)
+            if song:
+                return song.lyrics
+            return ""
+        except Exception as e:
+            if attempt < MAX_RETRIES - 1:
+                delay = BASE_DELAY * (2 ** attempt)
+                logger.warning(
+                    f"Attempt {attempt + 1} failed for '{title_clean}' by {artist}: {e}. "
+                    f"Retrying in {delay:.1f}s..."
+                )
+                time.sleep(delay)
+            else:
+                logger.error(f"All retries failed for '{title_clean}' by {artist}: {e}")
+                return ""
+
 
 def fetch_lyrics_for_fma(api_token, output_path=PROCESSED_DIR / "lyrics.csv"):
     """Fetches lyrics for FMA small subset tracks using Genius API."""
-    print("Loading tracks...")
+    logger.info("Loading tracks...")
     tracks = load_tracks(FMA_METADATA_DIR)
     small_ids = get_small_subset_ids(tracks)
     df = tracks.loc[small_ids].copy()
@@ -19,7 +46,7 @@ def fetch_lyrics_for_fma(api_token, output_path=PROCESSED_DIR / "lyrics.csv"):
     genius.remove_section_headers = True
 
     lyrics_list = []
-    print(f"Fetching lyrics for {len(df)} tracks...")
+    logger.info(f"Fetching lyrics for {len(df)} tracks...")
 
     for tid, row in df.iterrows():
         artist = row[("artist", "name")]
@@ -28,19 +55,12 @@ def fetch_lyrics_for_fma(api_token, output_path=PROCESSED_DIR / "lyrics.csv"):
         # Simple fuzzy: remove feat., remastered, etc.
         title_clean = re.sub(r"\(.*?\)|\[.*?\]|feat\..*", "", str(title)).strip()
 
-        try:
-            song = genius.search_song(title_clean, artist)
-            if song:
-                lyrics_list.append({"track_id": tid, "lyrics": song.lyrics})
-            else:
-                lyrics_list.append({"track_id": tid, "lyrics": ""})
-            time.sleep(0.1)  # respect rate limit
-        except Exception as e:
-            print(f"Error {artist} - {title}: {e}")
-            lyrics_list.append({"track_id": tid, "lyrics": ""})
+        lyrics = _fetch_with_backoff(genius, title_clean, artist)
+        lyrics_list.append({"track_id": tid, "lyrics": lyrics})
+        time.sleep(0.2)  # respect Genius rate limit (5 req/s)
 
     pd.DataFrame(lyrics_list).to_csv(output_path, index=False)
-    print(f"Saved lyrics to {output_path}")
+    logger.info(f"Saved lyrics to {output_path}")
 
 
 if __name__ == "__main__":

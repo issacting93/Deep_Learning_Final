@@ -35,10 +35,10 @@ class SentenceBERTEmbeddingGenerator(EmbeddingGenerator):
         metadata_path = output_dir / "metadata_texts.csv"
 
         if resume and metadata_path.exists():
-            print("Loading existing metadata strings...")
+            logger.info("Loading existing metadata strings...")
             df_meta = pd.read_csv(metadata_path, index_col=0)
         else:
-            print("Building metadata strings...")
+            logger.info("Building metadata strings...")
             df_meta = build_metadata_strings()
 
         # Filter to requested track IDs
@@ -49,7 +49,7 @@ class SentenceBERTEmbeddingGenerator(EmbeddingGenerator):
             logger.warning("No metadata found for requested track IDs.")
             return np.array([]), []
 
-        print(f"Encoding {len(text_data)} strings with SBERT...")
+        logger.info(f"Encoding {len(text_data)} strings with SBERT...")
         # normalize_embeddings=True ensures Cosine Similarity is equivalent to Dot Product
         embeddings = self.model.encode(
             text_data,
