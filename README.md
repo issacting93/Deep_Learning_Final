@@ -201,7 +201,9 @@ Fine-tuned CLAP on FMA with contrastive learning. Conducted before/after compari
 ├── scripts/
 │   ├── download_fma.py                    # Download FMA dataset
 │   ├── audit_metadata.py                  # Cross-reference metadata vs audio
+│   ├── clap_embeddings.py                 # CLAP audio & text embedding generator (Standalone pipeline)
 │   ├── generate_clap_embeddings.py        # CLAP embedding pipeline (CLI)
+│   ├── text_to_text_SBERT_FMA_GENIUS_2.py # SBERT metadata & lyrics embeddings (Standalone pipeline)
 │   ├── generate_sbert_embeddings.py       # SBERT embedding pipeline
 │   ├── generate_fused_embeddings.py       # Lyrics-enriched SBERT + OpenL3 fusion
 │   ├── build_faiss_index.py               # Build FAISS indices
