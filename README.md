@@ -382,13 +382,61 @@ python scripts/build_faiss_index.py
 
 Precomputed embeddings and FAISS indices are included in `data/processed/`, so you can skip straight to running the demo.
 
-### Running the Demo
+## Web Application & Interactive Demo
+
+The project includes a multi-view music recommendation interface built with Flask and Vanilla JS. It allows users to explore the 2,000-track subset and compare how different embedding models "see" music similarity.
+
+### Interactive Components & Design
+
+The demo is designed to make the high-dimensional embedding spaces tangible and interpretable:
+
+- **Similarity Radar (The "DNA" Chart)**: Each recommendation's relationship to the seed track is visualized as a three-axis radar chart. This reveals the "profile" of the match. For example, a track might have a high **OpenL3** score (acoustically identical) but a low **SBERT** score (different lyrical themes), or vice versa.
+- **Model Score Mini-Bars**: In the main fused list, each track has three dynamic bars. These represent the relative contribution of each model to that track's rank. It allows you to see at a glance if a recommendation was surfaced primarily by one model or if it was a consensus choice.
+- **Side-by-Side Top-10s**: The detail panel includes tabs for **SBERT**, **OpenL3**, and **CLAP**. This lets you compare the "pure" nearest neighbors of each model. It's often fascinating to see how the CLAP "vibe" neighbors differ from the OpenL3 "timbre" neighbors.
+
+### Screenshots
+
+![Landing Page: Search and Browse](data/processed/viz/app_landing_page.png)
+*Figure 1: The main interface featuring a global search bar and a responsive grid of tracks with color-coded genre badges.*
+
+![Recommendation Results: Fused View and Radar Chart](data/processed/viz/app_recommendations.png)
+*Figure 2: Recommendation dashboard showing the Fused leaderboard on the left and a detailed similarity radar chart on the right.*
+
+### User Walkthrough: Exploring the Music Space
+
+1. **Launch the Server**:
+   ```bash
+   python app.py
+   ```
+   Navigate to `http://localhost:5001`. The interface loads 2,000 common tracks across all three views.
+
+2. **Search or Browse**:
+   Use the **Global Search** to find a specific artist (e.g., "The Blizzard") or use the **Genre Filters** to narrow down the browse grid. The grid uses color-coded badges to indicate the top-level FMA genre.
+
+3. **Set the Seed**:
+   Click any track to designate it as the **Seed Track**. The interface will update:
+   - The **Now Playing** card appears with an audio player.
+   - The **Fused Recommendations** list is calculated on-the-fly using Reciprocal Rank Fusion (RRF).
+
+4. **Investigate the Fusion**:
+   Hover over the **Fusion Score** to see the raw RRF value. Look for tracks where all three mini-bars are filled — these are "Robust Matches" that satisfy text, audio, and vibe criteria.
+
+5. **Analyze a Single Match**:
+   Click a track in the recommendation list to populate the **Detail Panel**:
+   - **Radar Chart**: See if the match is leaning towards "Acoustic" (OpenL3) or "Semantic" (SBERT).
+   - **Score Readout**: View the exact cosine similarities (normalized to 0.0–1.0).
+
+### Try These Scenarios:
+- **Scenario A (Acoustic vs Semantic)**: Find a track with very specific lyrics but a common "Rock" sound. Compare the **SBERT** tab (similar lyrics) with the **OpenL3** tab (similar guitar tone).
+- **Scenario B (The CLAP 'Vibe')**: Search for an experimental track. Notice how **CLAP** often finds neighbors that "feel" the same even if their instruments are different, capturing the high-level mood that raw audio CNNs sometimes miss.
+- **Scenario C (RRF Robustness)**: Look at the top-3 fused results. You'll often find they aren't the #1 results for any single model, but rather tracks that performed well across *all* of them.
+
+### Local Execution
 
 ```bash
-python app.py  # http://localhost:5001
+# Ensure venv is active and dependencies are installed
+python app.py
 ```
-
-The web app lets you search for any track, then shows side-by-side recommendations from each view (CLAP, SBERT, OpenL3) and the fused result.
 
 For notebook-based demos, see:
 - `notebooks/02_clap_retrieval_demo.ipynb` — text-to-music search (type a description, get songs)
