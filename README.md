@@ -233,7 +233,7 @@ For full reproduction steps, see [docs/EVALUATION.md](docs/EVALUATION.md).
 ## Team Contributions
 
 ### Overall Architecture & Web Demo — Issac
-Introduced the project and designed the overall pipeline. Implemented multi-view fusion strategy (vector-level early fusion and rank-level RRF), built the interactive Flask web application with Vanilla JS front-end. Conducted the live demo showcasing the retrieval system.
+Introduced the project and designed the overall pipeline. Visualized the data and outputs, and  implemented multi-view fusion strategy (vector-level early fusion and rank-level RRF), built the interactive Flask web application with Vanilla JS front-end. Conducted the live demo showcasing the retrieval system.
 
 ### Semantic Search with SBERT & Lyrics — Sid
 Generated SBERT embeddings (384-d) from track metadata and lyrics fetched via Genius API. Identified and fixed critical genre leakage in metadata strings (48.8% of tags contained genre words). Conducted semantic robustness analysis including lexical bias and truncation impact studies. (See `reports/sid_issac_lyrics_report.md`).
