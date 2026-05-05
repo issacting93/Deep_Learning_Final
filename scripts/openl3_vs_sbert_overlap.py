@@ -31,10 +31,10 @@ from sklearn.manifold import TSNE
 # ── paths ──────────────────────────────────────────────────────────────────────
 ROOT      = Path(__file__).resolve().parent.parent
 PROC      = ROOT / "data" / "processed"
-META_DIR  = ROOT / "data" / "fma_metadata"
+META_DIR  = ROOT / "data" / "fma_2000_metadata"
 
-OPENL3_EMB  = ROOT / "openl3_embeddings.npy"
-OPENL3_IDS  = ROOT / "openl3_track_ids.npy"
+OPENL3_EMB  = PROC / "openl3_embeddings.npy"
+OPENL3_IDS  = PROC / "openl3_track_ids.npy"
 SBERT_EMB   = PROC / "sbert_embeddings.npy"
 SBERT_IDS   = PROC / "sbert_track_ids.npy"
 TRACKS_CSV  = META_DIR / "tracks.csv"

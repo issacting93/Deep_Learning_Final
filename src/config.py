@@ -8,7 +8,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
 PROCESSED_DIR = DATA_DIR / "processed"
 FMA_SMALL_DIR = DATA_DIR / "fma_small"
-FMA_METADATA_DIR = DATA_DIR / "fma_metadata"
+FMA_METADATA_DIR = DATA_DIR / "fma_2000_metadata"
 MODELS_DIR = PROJECT_ROOT / "models"
 
 # Audio constants

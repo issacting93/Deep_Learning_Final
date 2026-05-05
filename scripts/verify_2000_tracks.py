@@ -7,11 +7,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parent.parent
-PROCESSED = ROOT / "data" / "processed"
+# Add project root to path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.config import PROCESSED_DIR, FMA_METADATA_DIR
+
+PROCESSED = PROCESSED_DIR
 LYRICS_ENRICHED = PROCESSED / "lyrics_enriched"
-METADATA = ROOT / "data" / "fma_2000_metadata"
-EVAL_SBERT = ROOT / "evaluation" / "SBERT"
+METADATA = FMA_METADATA_DIR
+EVAL_SBERT = PROJECT_ROOT / "evaluation" / "SBERT"
 
 CANONICAL_COUNT = 2000
 passed = 0

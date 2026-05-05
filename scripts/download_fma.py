@@ -1,4 +1,10 @@
-"""Download and extract the FMA dataset."""
+"""Download and extract the FMA dataset (optional).
+
+This script downloads the full FMA small subset (~8GB) and metadata.
+NOTE: The canonical 2,000-track metadata subset (fma_2000_metadata/) is already
+included in the repo, so this script is only needed if you want the full 8,000-track
+metadata. All pipelines use fma_2000_metadata/ by default (defined in src/config.py).
+"""
 import argparse
 import hashlib
 import os

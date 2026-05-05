@@ -1,6 +1,6 @@
 # Multi-Faceted Music Retrieval
 
-Issac, Sid, Wenny, Jiayi, Helena
+Issac, Sid, Wenny, Jiayi, Yunchu (Helena), MJ
 
 ## Introduction
 
@@ -20,9 +20,9 @@ We use the [Free Music Archive (FMA)](https://github.com/mdeff/fma) — specific
 python scripts/download_fma.py
 ```
 
-This places audio files in `data/fma_small/` (organized as `000/000002.mp3`) and metadata in `data/fma_metadata/`. Total download: ~7.2 GB.
+This places audio files in `data/fma_small/` (organized as `000/000002.mp3`). Total download: ~7.2 GB.
 
-A pre-filtered 2,000-track subset with metadata is included in the repo at `data/fma_2000_metadata/` for evaluation and the web demo. The canonical track IDs for this subset are stored in `data/processed/openl3_track_ids.npy`.
+**Note:** A pre-filtered 2,000-track metadata subset (`data/fma_2000_metadata/`) is already included in the repo—all pipelines use this canonical subset by default. The track IDs are stored in `data/processed/openl3_track_ids.npy`.
 
 **Lyrics:** Fetched at runtime from the [Genius API](https://genius.com/developers). Requires a `GENIUS_API_KEY` in your `.env` file. Cached lyrics are stored in `data/processed/lyrics_enriched/lyrics_df.csv` so the API only needs to be called once.
 
@@ -233,7 +233,7 @@ For full reproduction steps, see [docs/EVALUATION.md](docs/EVALUATION.md).
 ## Team Contributions
 
 ### Overall Architecture & Web Demo — Issac
-Introduced the project and designed the overall pipeline. Visualized the data and outputs, and  implemented multi-view fusion strategy (vector-level early fusion and rank-level RRF), built the interactive Flask web application with Vanilla JS front-end. Conducted the live demo showcasing the retrieval system.
+Introduced the project and designed the overall pipeline. Visualized the data and outputs, and  implemented multi-view fusion strategy (vector-level early fusion and rank-level RRF), built the interactive Flask web application with Vanilla JS front-end. 
 
 ### Semantic Search with SBERT & Lyrics — Sid
 Generated SBERT embeddings (384-d) from track metadata and lyrics fetched via Genius API. Identified and fixed critical genre leakage in metadata strings (48.8% of tags contained genre words). Conducted semantic robustness analysis including lexical bias and truncation impact studies. (See `reports/sid_issac_lyrics_report.md`).
@@ -256,7 +256,7 @@ Designed and implemented the three-layer evaluation methodology: Top-1 genre acc
 ```text
 ├── data/
 │   ├── fma_small/               # 8,000 MP3 files (organized as 000/000002.mp3)
-│   ├── fma_metadata/            # tracks.csv, genres.csv, echonest.csv
+│   ├── fma_2000_metadata/       # Canonical 2,000-track metadata (tracks.csv, genres.csv, echonest.csv)
 │   └── processed/               # Embeddings, FAISS indices, visualisations
 │       └── lyrics_enriched/     # Genre-free SBERT + fused embeddings
 ├── docs/                        # Project documentation and guides
@@ -337,217 +337,118 @@ Designed and implemented the three-layer evaluation methodology: Top-1 genre acc
 └── README.md
 ```
 
-## Adding a New Model
+## Quick Start
 
-Every retrieval view follows the same pattern: generate two `.npy` files (embeddings + track IDs), then plug them into the app. Here's the standard workflow.
+### Run the Demo (Fastest)
 
-### Important: The 2,000-Track Canonical Subset
-
-All existing views (SBERT, OpenL3, CLAP) share a common 2,000-track subset. The canonical list of track IDs lives in:
-
-```
-data/processed/openl3_track_ids.npy    # (2000,) int array — the source of truth
-```
-
-This file was created when OpenL3 embeddings were first generated over FMA small (~8,000 tracks). Every downstream pipeline — SBERT, CLAP, fusion, and evaluation — loads these IDs and generates embeddings **only for these 2,000 tracks**. The app computes the intersection of all views at startup (see `app.py:90-96`), so any tracks missing from your new model are simply excluded.
-
-**When adding a new model, always load these IDs as your target set** to ensure your embeddings align with the rest of the system.
-
-### 1. Implement the embedding generator
-
-Subclass `src/embeddings/base.py:EmbeddingGenerator`:
-
-```python
-# src/embeddings/my_model.py
-from src.embeddings.base import EmbeddingGenerator
-
-class MyModelEmbeddingGenerator(EmbeddingGenerator):
-    def generate(self, track_ids, output_dir, batch_size=32, resume=True):
-        # Load your model, process tracks, save checkpoints
-        # Return: (embeddings: np.ndarray, valid_ids: list)
-        ...
-
-    def load_embeddings(self, output_dir):
-        embeddings = np.load(output_dir / "mymodel_embeddings.npy")
-        track_ids = np.load(output_dir / "mymodel_track_ids.npy").tolist()
-        return embeddings, track_ids
-```
-
-The two output files must satisfy:
-- `mymodel_embeddings.npy` — shape `(N, D)`, float32
-- `mymodel_track_ids.npy` — shape `(N,)`, integer track IDs aligned row-by-row with the embeddings
-
-### 2. Write a generation script
-
-Load the canonical 2,000 track IDs and generate embeddings for that set:
-
-```python
-# scripts/generate_mymodel_embeddings.py
-import numpy as np
-from src.config import PROCESSED_DIR
-from src.embeddings.my_model import MyModelEmbeddingGenerator
-
-# Load the canonical 2,000-track subset (shared across all views)
-track_ids = np.load(PROCESSED_DIR / "openl3_track_ids.npy").astype(int).tolist()
-print(f"Target: {len(track_ids)} tracks from canonical subset")
-
-generator = MyModelEmbeddingGenerator()
-embeddings, valid_ids = generator.generate(track_ids, PROCESSED_DIR)
-
-# Save with standardized naming
-np.save(PROCESSED_DIR / "mymodel_embeddings.npy", embeddings)
-np.save(PROCESSED_DIR / "mymodel_track_ids.npy", np.array(valid_ids))
-print(f"Saved {len(valid_ids)}/{len(track_ids)} tracks")
-```
-
-Run it: `python scripts/generate_mymodel_embeddings.py`
-
-If your model can't process some tracks (e.g., corrupt audio), `valid_ids` will be shorter than 2,000. That's fine — `app.py` intersects all views at startup and only serves tracks present in every view.
-
-### 3. Sanity check the embeddings
-
-Before going further, verify the output:
-
-```python
-import numpy as np
-emb = np.load("data/processed/mymodel_embeddings.npy")
-ids = np.load("data/processed/mymodel_track_ids.npy")
-canonical = set(np.load("data/processed/openl3_track_ids.npy").astype(int))
-
-assert emb.ndim == 2 and ids.ndim == 1
-assert emb.shape[0] == ids.shape[0]
-assert np.isfinite(emb).all()
-assert set(ids.astype(int)).issubset(canonical), "IDs outside canonical subset!"
-print(f"Shape: {emb.shape}, IDs: {len(ids)}/{len(canonical)} canonical tracks covered")
-```
-
-### 4. Build a FAISS index (optional)
-
-```python
-from src.indexing.faiss_index import FaissIndex
-index = FaissIndex(dimension=emb.shape[1], metric="cosine")
-index.build(emb, ids.tolist())
-index.save("data/processed/mymodel_faiss.index")
-```
-
-### 5. Add the view to `app.py`
-
-One line in the `VIEWS` dict:
-
-```python
-VIEWS = {
-    "sbert":   load_view("SBERT (Text)",   PROCESSED_DIR / "sbert_embeddings.npy",   PROCESSED_DIR / "sbert_track_ids.npy"),
-    "openl3":  load_view("OpenL3 (Audio)",  PROCESSED_DIR / "openl3_embeddings.npy",  PROCESSED_DIR / "openl3_track_ids.npy"),
-    "clap":    load_view("CLAP (Vibe)",     PROCESSED_DIR / "clap_embeddings.npy",    PROCESSED_DIR / "clap_track_ids.npy"),
-    "mymodel": load_view("MyModel (Label)", PROCESSED_DIR / "mymodel_embeddings.npy", PROCESSED_DIR / "mymodel_track_ids.npy"),
-}
-```
-
-`load_view` handles mean-centering, L2-normalization, and ID mapping automatically. The new view will appear in per-view recommendations and be included in RRF fusion with no other code changes.
-
-### 6. Evaluate
-
-Run the genre-consistency benchmark in `Evaluation/` to compare against existing models:
+Precomputed embeddings are included in `data/processed/`:
 
 ```bash
-cd Evaluation
-python3 evaluate_genre_retrieval.py --root . --num-samples -1 --seed 42
-```
-
-You'll need to add your `.npy` files to the `Evaluation/` directory and add a loader entry in the script's `models` list.
-
-## Using this Repository
-
-### Requirements
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
+# Install dependencies
+python -m venv venv
+source venv/bin/activate  # or `venv\Scripts\activate` on Windows
 pip install -r requirements.txt
-```
 
-Requires Python 3.9+. Key dependencies: PyTorch, librosa, sentence-transformers, laion-clap, faiss-cpu, Flask.
-
-### Training / Generating Embeddings
-
-```bash
-# Download FMA dataset (~7.2 GB)
-python scripts/download_fma.py
-
-# Generate CLAP embeddings
-python scripts/generate_clap_embeddings.py            # full 8,000 tracks
-python scripts/generate_clap_embeddings.py --limit 100 # test run
-
-# Generate lyrics-enriched SBERT + fused embeddings
-export GENIUS_API_KEY="your-key"  # or add to .env
-python scripts/generate_fused_embeddings.py              # full pipeline
-python scripts/generate_fused_embeddings.py --skip-lyrics # reuse cached lyrics
-
-# Build FAISS indices
-python scripts/build_faiss_index.py
-```
-
-Precomputed embeddings and FAISS indices are included in `data/processed/`, so you can skip straight to running the demo.
-
-## Web Application & Interactive Demo
-
-The project includes a multi-view music recommendation interface built with Flask and Vanilla JS. It allows users to explore the 2,000-track subset and compare how different embedding models "see" music similarity.
-
-### Interactive Components & Design
-
-The demo is designed to make the high-dimensional embedding spaces tangible and interpretable:
-
-- **Similarity Radar (The "DNA" Chart)**: Each recommendation's relationship to the seed track is visualized as a three-axis radar chart. This reveals the "profile" of the match. For example, a track might have a high **OpenL3** score (acoustically identical) but a low **SBERT** score (different lyrical themes), or vice versa.
-- **Model Score Mini-Bars**: In the main fused list, each track has three dynamic bars. These represent the relative contribution of each model to that track's rank. It allows you to see at a glance if a recommendation was surfaced primarily by one model or if it was a consensus choice.
-- **Side-by-Side Top-10s**: The detail panel includes tabs for **SBERT**, **OpenL3**, and **CLAP**. This lets you compare the "pure" nearest neighbors of each model. It's often fascinating to see how the CLAP "vibe" neighbors differ from the OpenL3 "timbre" neighbors.
-
-### Screenshots
-
-![Landing Page: Search and Browse](data/processed/viz/app_landing_page.png)
-*Figure 1: The main interface featuring a global search bar and a responsive grid of tracks with color-coded genre badges.*
-
-![Recommendation Results: Fused View and Radar Chart](data/processed/viz/app_recommendations.png)
-*Figure 2: Recommendation dashboard showing the Fused leaderboard on the left and a detailed similarity radar chart on the right.*
-
-### User Walkthrough: Exploring the Music Space
-
-1. **Launch the Server**:
-   ```bash
-   python app.py
-   ```
-   Navigate to `http://localhost:5001`. The interface loads 2,000 common tracks across all three views.
-
-2. **Search or Browse**:
-   Use the **Global Search** to find a specific artist (e.g., "The Blizzard") or use the **Genre Filters** to narrow down the browse grid. The grid uses color-coded badges to indicate the top-level FMA genre.
-
-3. **Set the Seed**:
-   Click any track to designate it as the **Seed Track**. The interface will update:
-   - The **Now Playing** card appears with an audio player.
-   - The **Fused Recommendations** list is calculated on-the-fly using Reciprocal Rank Fusion (RRF).
-
-4. **Investigate the Fusion**:
-   Hover over the **Fusion Score** to see the raw RRF value. Look for tracks where all three mini-bars are filled — these are "Robust Matches" that satisfy text, audio, and vibe criteria.
-
-5. **Analyze a Single Match**:
-   Click a track in the recommendation list to populate the **Detail Panel**:
-   - **Radar Chart**: See if the match is leaning towards "Acoustic" (OpenL3) or "Semantic" (SBERT).
-   - **Score Readout**: View the exact cosine similarities (normalized to 0.0–1.0).
-
-### Try These Scenarios:
-- **Scenario A (Acoustic vs Semantic)**: Find a track with very specific lyrics but a common "Rock" sound. Compare the **SBERT** tab (similar lyrics) with the **OpenL3** tab (similar guitar tone).
-- **Scenario B (The CLAP 'Vibe')**: Search for an experimental track. Notice how **CLAP** often finds neighbors that "feel" the same even if their instruments are different, capturing the high-level mood that raw audio CNNs sometimes miss.
-- **Scenario C (RRF Robustness)**: Look at the top-3 fused results. You'll often find they aren't the #1 results for any single model, but rather tracks that performed well across *all* of them.
-
-### Local Execution
-
-```bash
-# Ensure venv is active and dependencies are installed
+# Launch the web app
 python app.py
 ```
 
-For notebook-based demos, see:
-- `notebooks/02_clap_retrieval_demo.ipynb` — text-to-music search (type a description, get songs)
-- `notebooks/08_semantic_search_demo.ipynb` — SBERT metadata/lyrics search
+Open `http://localhost:5001` and start exploring music similarities across three views.
+
+### Reproduce Embeddings (If Needed)
+
+To regenerate embeddings from scratch:
+
+```bash
+# Download FMA dataset (~7.2 GB, one-time only)
+python scripts/download_fma.py
+
+# Generate CLAP embeddings
+python scripts/generate_clap_embeddings.py
+
+# Generate SBERT embeddings + lyrics
+export GENIUS_API_KEY="your-api-key"  # Add to .env instead
+python scripts/generate_sbert_embeddings.py
+
+# Fuse all views
+python scripts/generate_fused_embeddings.py --skip-lyrics  # reuse cached lyrics
+```
+
+### Run Evaluations
+
+```bash
+cd evaluation
+python evaluate_genre_retrieval.py --num-samples -1 --seed 42
+```
+
+Produces three metrics: genre accuracy, Echo Nest feature distance, cross-view overlap.
+
+## System Architecture
+
+### Three Independent Views
+
+Each view is generated independently via `src/embeddings/`:
+
+| View | Input | Generator | Output | Dimensions |
+|------|-------|-----------|--------|------------|
+| CLAP | Audio waveform | `src/embeddings/clap.py` | `clap_embeddings.npy` | 512 |
+| SBERT | Metadata + lyrics | `src/embeddings/sbert.py` | `sbert_embeddings.npy` | 384 |
+| OpenL3 | Audio waveform | (external) | `openl3_embeddings.npy` | 512 |
+
+### Pipeline Flow
+
+```
+FMA small (~8,000 tracks)
+    ↓
+[CLAP] [SBERT + Lyrics] [OpenL3]
+    ↓         ↓            ↓
+   512-d    384-d        512-d embeddings
+    ↓         ↓            ↓
+    └─────→ App startup ←──┘
+            (compute intersection)
+                ↓
+         Common tracks (~2,000)
+                ↓
+         Reciprocal Rank Fusion
+                ↓
+          Fused recommendations
+```
+
+### Data Leakage Prevention
+
+- **Genre labels** never appear in model inputs
+- **Metadata pruning** removes genre-like tags (48.8% of FMA tags are genre words)
+- **Evaluation ground truth** uses only genre labels as evaluation metric
+
+## Web Application
+
+Built with Flask + Vanilla JS. Provides three interactive components:
+
+1. **Browse Grid** — Search and filter the 2,000-track dataset by title/artist/genre
+2. **Per-View Rankings** — See top-10 recommendations from each embedding separately (CLAP, SBERT, OpenL3)
+3. **Fused Leaderboard** — Combined ranking via Reciprocal Rank Fusion (RRF) with per-model score visualization
+
+### Launch
+
+```bash
+python app.py  # Visit http://localhost:5001
+```
+
+**Visualization Details:**
+- Similarity radar chart shows alignment between seed track and each model
+- Dynamic bars indicate relative contribution of each view to fused rank
+- Color-coded genre badges on all track cards
+
+### Interactive Walkthrough
+
+1. **Find a Track** — Use search bar or genre filter
+2. **Click to Set Seed** — Triggers embedding lookup and RRF calculation
+3. **Compare Views** — Toggle between CLAP/SBERT/OpenL3 tabs
+4. **Investigate Matches** — Hover over scores to see raw cosine similarities
+
+See also:
+- `notebooks/02_clap_retrieval_demo.ipynb` — Text-to-music search examples
+- `notebooks/08_semantic_search_demo.ipynb` — SBERT semantic query examples
 
 ## Documentation
 

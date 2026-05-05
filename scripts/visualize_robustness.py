@@ -1,10 +1,12 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
-from pathlib import Path
 
-# Paths
-PROCESSED_DIR = Path("data/processed")
+from src.config import PROCESSED_DIR
 
 def plot_robustness():
     # Data from previous analysis run
