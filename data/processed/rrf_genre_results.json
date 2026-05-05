@@ -1,0 +1,22 @@
+{
+  "sbert": {
+    "top_1_accuracy": 0.8855,
+    "correct": 1771,
+    "total": 2000
+  },
+  "openl3": {
+    "top_1_accuracy": 0.5525,
+    "correct": 1105,
+    "total": 2000
+  },
+  "clap": {
+    "top_1_accuracy": 0.581,
+    "correct": 1162,
+    "total": 2000
+  },
+  "rrf": {
+    "top_1_accuracy": 0.7515,
+    "correct": 1503,
+    "total": 2000
+  }
+}

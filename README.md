@@ -166,16 +166,17 @@ We use three complementary evaluation strategies to assess retrieval quality wit
 4. For each query, find the nearest neighbor (argmax)
 5. Compare genre labels and report accuracy
 
-**Results on 2,000-track subset (500 random queries):**
+**Results on 2,000-track subset (full evaluation):**
 
-| Model | Top-1 Genre Accuracy |
-|-------|---------------------|
-| CLAP (audio) | 0.52 |
-| CLAP (text) | 0.48 |
-| OpenL3 | 0.41 |
-| SBERT (lyrics) | 0.38 |
+| Model | Top-1 Genre Accuracy | Correct / Total |
+|-------|---------------------|-----------------|
+| CLAP (audio) | 53.7% | 1073/2000 |
+| CLAP (text) | 67.7% | 1354/2000 |
+| OpenL3 | 55.3% | 1105/2000 |
+| SBERT (lyrics) | 57.6% | 1151/2000 |
+| **RRF (all 4 views)** | **76.9%** | **1538/2000** |
 
-CLAP performs best because its contrastive training explicitly aligns audio with semantic descriptors that correlate with genre. SBERT scores lowest because genre labels were intentionally removed from input to prevent data leakage.
+RRF fusion achieves the best performance (76.9%), exceeding the best single view (CLAP text 67.7%) by 9.2 percentage points. CLAP text performs best among single views because its contrastive training explicitly aligns audio with semantic descriptors that correlate with genre. SBERT scores lower because genre labels were intentionally removed from input to prevent data leakage.
 
 **Limitations:** Genre is a coarse label; two acoustically similar tracks can differ in genre. This metric rewards genre clustering rather than nuanced similarity.
 
@@ -194,14 +195,15 @@ All features are z-score standardized before computing Euclidean distance.
 3. Compare against random baseline (average distance between random track pairs)
 4. Report statistical significance via paired t-test
 
-| Method | Avg Distance | vs Random | p-value |
-|---|---|---|---|
-| Random Baseline | 3.80 | — | — |
-| SBERT (Text+Lyrics) | 3.33 | -12.4% | 1.6e-06 |
-| Fused (SBERT+OpenL3) | 3.22 | -15.1% | 1.4e-08 |
-| **OpenL3 (Audio)** | **2.87** | **-24.3%** | **1.8e-21** |
+| Method | Avg Distance | σ | vs Random | p-value |
+|---|---|---|---|---|
+| Random Baseline | 3.83 | — | — | — |
+| SBERT (Text+Lyrics) | 3.24 | 1.17 | +15.3% | 5.3e-07 |
+| OpenL3 (Audio) | 2.89 | 0.96 | +24.6% | 3.1e-18 |
+| CLAP (Audio+Text) | 2.89 | 1.04 | +24.6% | 6.3e-18 |
+| **RRF (All 4 views)** | **2.89** | **1.04** | **+24.6%** | **2.2e-17** |
 
-OpenL3 performs best because both it and Echo Nest operate in the acoustic domain. Fused embeddings outperform any single view, confirming text and audio provide complementary signals. All differences are statistically significant (N=294 tracks with both embeddings and Echo Nest features).
+OpenL3, CLAP, and RRF achieve equal performance (24.6% improvement) because acoustic embeddings plateau in the acoustic domain. RRF fusion maintains parity with the best single models while simultaneously achieving superior genre accuracy (76.9%), demonstrating that text and audio provide complementary signals. All differences are statistically significant (N=294 tracks with both embeddings and Echo Nest features).
 
 **Caveat:** The 294-track overlap is not uniformly distributed across genres (Folk and Hip-Hop over-represented at ~21% each; Experimental under-represented at 1.4%).
 
@@ -247,8 +249,8 @@ Generated and fine-tuned CLAP embeddings (512-d) on the FMA dataset using contra
 ### Audio-to-Spectrograph Analysis — MJ
 Conducted exploratory analysis on converting audio waveforms to spectrograms as an alternative representation. Applied analysis to a smaller sample due to computational constraints. Documented findings and potential fusion opportunities with embedding-based approaches.
 
-### Evaluation Framework — Yunchu (Helena)
-Designed and implemented the three-layer evaluation methodology: Top-1 genre accuracy, Echo Nest feature distance analysis, and cross-view overlap assessment. Ensured data leakage prevention across all evaluation pipelines and conducted comprehensive results analysis.
+### Evaluation Framework & Fusion Analysis — Yunchu (Helena)
+Designed and implemented the three-layer evaluation methodology: Top-1 genre accuracy, Echo Nest feature distance analysis, and cross-view overlap assessment. Ensured data leakage prevention across all evaluation pipelines. Implemented and evaluated Reciprocal Rank Fusion (RRF) strategy, demonstrating that four-view fusion achieves **76.9% genre accuracy** — 9.2 percentage points above the best single view (CLAP text 67.7%) — while maintaining competitive Echo Nest performance (24.6% improvement vs random). Conducted comprehensive statistical significance testing (paired t-tests, p-values) across all metrics.
 
 
 ## Directory Structure

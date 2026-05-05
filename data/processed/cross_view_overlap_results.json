@@ -1,0 +1,50 @@
+{
+  "clap_openl3": {
+    "n_tracks": 2000,
+    "k_values": [
+      5,
+      10,
+      20,
+      50
+    ],
+    "overlap_at_5": 0.1361,
+    "overlap_at_10": 0.1653,
+    "overlap_at_20": 0.205,
+    "overlap_at_50": 0.2725,
+    "mean_spearman_rho": 0.5036,
+    "std_spearman_rho": 0.1733,
+    "pct_positive_rho": 98.1
+  },
+  "clap_sbert": {
+    "n_tracks": 2000,
+    "k_values": [
+      5,
+      10,
+      20,
+      50
+    ],
+    "overlap_at_5": 0.0723,
+    "overlap_at_10": 0.0709,
+    "overlap_at_20": 0.0702,
+    "overlap_at_50": 0.1045,
+    "mean_spearman_rho": 0.1118,
+    "std_spearman_rho": 0.1082,
+    "pct_positive_rho": 84.5
+  },
+  "openl3_sbert": {
+    "n_tracks": 2000,
+    "k_values": [
+      5,
+      10,
+      20,
+      50
+    ],
+    "overlap_at_5": 0.068,
+    "overlap_at_10": 0.0627,
+    "overlap_at_20": 0.064,
+    "overlap_at_50": 0.0925,
+    "mean_spearman_rho": 0.0667,
+    "std_spearman_rho": 0.1006,
+    "pct_positive_rho": 75.25
+  }
+}

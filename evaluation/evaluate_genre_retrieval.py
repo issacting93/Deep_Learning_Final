@@ -119,6 +119,67 @@ def evaluate_top1_genre_accuracy(
     return acc, correct, total
 
 
+def evaluate_rrf_top1_genre_accuracy(
+    models: list,
+    id_to_genre: Dict[int, str],
+    num_samples: int,
+    seed: int,
+    rrf_k: int = 60,
+) -> Tuple[float, int, int]:
+    common_ids_set = set(int(x) for x in models[0].ids)
+    for model in models[1:]:
+        common_ids_set &= set(int(x) for x in model.ids)
+    common_ids = sorted(list(common_ids_set))
+
+    def align(model, common):
+        id_map = {int(tid): i for i, tid in enumerate(model.ids)}
+        indices = np.array([id_map[int(tid)] for tid in common])
+        return l2_normalize(model.emb[indices])
+
+    aligned_embs = [align(model, common_ids) for model in models]
+    aligned_ids = np.array(common_ids, dtype=np.int64)
+
+    mask = np.array([int(tid) in id_to_genre for tid in aligned_ids], dtype=bool)
+    ids = aligned_ids[mask]
+    embs = [emb[mask] for emb in aligned_embs]
+
+    n = len(ids)
+    if n < 2:
+        raise ValueError("RRF: not enough valid tracks for evaluation")
+
+    eval_n = n if num_samples <= 0 else min(num_samples, n)
+    rng = np.random.default_rng(seed)
+    query_idx = np.arange(n) if eval_n == n else rng.choice(n, size=eval_n, replace=False)
+
+    K = 10
+    rrf_top1 = []
+    for qi in query_idx:
+        rrf_scores: Dict[int, float] = {}
+        for emb in embs:
+            sim = emb @ emb.T
+            sim[qi, qi] = -np.inf
+            topk = np.argsort(sim[qi])[-K:][::-1]
+            for rank, neighbor_idx in enumerate(topk):
+                neighbor_idx = int(neighbor_idx)
+                if neighbor_idx not in rrf_scores:
+                    rrf_scores[neighbor_idx] = 0.0
+                rrf_scores[neighbor_idx] += 1.0 / (rrf_k + rank + 1)
+
+        nn_idx = max(rrf_scores.items(), key=lambda x: x[1])[0] if rrf_scores else -1
+        rrf_top1.append(nn_idx)
+
+    rrf_top1 = np.array(rrf_top1)
+    valid_mask = rrf_top1 >= 0
+
+    query_genres = np.array([id_to_genre[int(ids[i])] for i in query_idx], dtype=object)
+    nn_genres = np.array([id_to_genre[int(ids[i])] for i in rrf_top1[valid_mask]], dtype=object)
+
+    correct = int(np.sum(query_genres[valid_mask] == nn_genres))
+    total = int(len(query_idx))
+    acc = correct / total if total > 0 else 0.0
+    return acc, correct, total
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Validate embeddings and evaluate top-1 genre retrieval accuracy."
@@ -139,7 +200,13 @@ def main() -> None:
     args = parser.parse_args()
 
     root = args.root
-    csv_path = root / "our_2000_tracks.csv"
+
+    # Use unified metadata path from config
+    import sys
+    sys.path.insert(0, str(root))
+    from src.config import FMA_METADATA_DIR
+
+    csv_path = FMA_METADATA_DIR / "tracks.csv"
 
     csv_ids, genres, id_to_genre = load_metadata(csv_path)
     csv_id_set = set(int(x) for x in csv_ids.tolist())
@@ -149,21 +216,23 @@ def main() -> None:
     print(f"unique track ids: {len(np.unique(csv_ids))}")
     print(f"unique genres: {len(pd.unique(genres))}")
 
+    # Use evaluation directory embeddings
+    eval_dir = root / "evaluation"
     models = [
-        load_clap_dict_embeddings(root / "CLAP" / "clap_audio_embeddings.npy", "CLAP(audio)"),
-        load_ordered_embeddings(
-            root / "CLAP" / "clap_text_embeddings_new.npy",
-            csv_ids,
+        load_clap_dict_embeddings(eval_dir / "CLAP" / "clap_audio_embeddings.npy", "CLAP(audio)"),
+        load_id_embedding_pair(
+            eval_dir / "CLAP" / "clap_text_embeddings_new.npy",
+            eval_dir / "CLAP" / "clap_text_track_ids.npy",
             "CLAP(text,new)",
         ),
         load_id_embedding_pair(
-            root / "OpenL3" / "openl3_embeddings.npy",
-            root / "OpenL3" / "openl3_track_ids.npy",
+            eval_dir / "OpenL3" / "openl3_embeddings.npy",
+            eval_dir / "OpenL3" / "openl3_track_ids.npy",
             "OpenL3",
         ),
         load_id_embedding_pair(
-            root / "SBERT" / "sbert_lyrics_embeddings.npy",
-            root / "SBERT" / "sbert_lyrics_faiss.ids.npy",
+            eval_dir / "SBERT" / "sbert_lyrics_embeddings.npy",
+            eval_dir / "SBERT" / "sbert_lyrics_faiss.ids.npy",
             "SBERT(lyrics)",
         ),
     ]
@@ -185,6 +254,14 @@ def main() -> None:
             seed=args.seed,
         )
         print(f"{model.name}: accuracy={acc:.4f} ({correct}/{total})")
+
+    acc_rrf, correct_rrf, total_rrf = evaluate_rrf_top1_genre_accuracy(
+        models=models,
+        id_to_genre=id_to_genre,
+        num_samples=args.num_samples,
+        seed=args.seed,
+    )
+    print(f"RRF(all 4 models): accuracy={acc_rrf:.4f} ({correct_rrf}/{total_rrf})")
 
 
 if __name__ == "__main__":

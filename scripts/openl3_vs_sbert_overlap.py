@@ -1,20 +1,18 @@
 """
-openl3_vs_sbert_overlap.py
---------------------------
-Compares OpenL3 audio embeddings (Role 1) with SBERT text embeddings (Role 2)
+cross_view_overlap.py
+---------------------
+Compares embeddings across all view pairs (OpenL3, SBERT, CLAP)
 across the 2000-track FMA subset.
 
-Analyses performed:
-  1. Rank Correlation  — Spearman ρ between OpenL3 and SBERT top-k neighbour lists
-  2. Retrieval Overlap — Overlap@k for a fixed set of seed queries
-  3. t-SNE Alignment  — Side-by-side visualisation coloured by genre
-  4. Per-genre agreement heatmap
+Analyses performed for each view pair:
+  1. Rank Correlation  — Spearman ρ between view top-k neighbour lists
+  2. Retrieval Overlap — Overlap@k
+  3. Per-genre agreement heatmap
 
 Outputs saved to: data/processed/
-  - openl3_sbert_overlap_results.json
-  - openl3_sbert_rank_corr.png
-  - openl3_sbert_tsne_comparison.png
-  - openl3_sbert_genre_heatmap.png
+  - cross_view_overlap_results.json (summary of all pairs)
+  - {view1}_{view2}_rank_corr.png
+  - {view1}_{view2}_genre_heatmap.png
 """
 
 import os, sys, json
@@ -37,12 +35,11 @@ OPENL3_EMB  = PROC / "openl3_embeddings.npy"
 OPENL3_IDS  = PROC / "openl3_track_ids.npy"
 SBERT_EMB   = PROC / "sbert_embeddings.npy"
 SBERT_IDS   = PROC / "sbert_track_ids.npy"
+CLAP_EMB    = PROC / "clap_embeddings.npy"
+CLAP_IDS    = PROC / "clap_track_ids.npy"
 TRACKS_CSV  = META_DIR / "tracks.csv"
 
-OUT_JSON    = PROC / "openl3_sbert_overlap_results.json"
-OUT_CORR    = PROC / "openl3_sbert_rank_corr.png"
-OUT_TSNE    = PROC / "openl3_sbert_tsne_comparison.png"
-OUT_HEATMAP = PROC / "openl3_sbert_genre_heatmap.png"
+OUT_JSON    = PROC / "cross_view_overlap_results.json"
 
 K_VALUES    = [5, 10, 20, 50]
 
@@ -99,29 +96,51 @@ def rank_correlation_per_track(sim_openl3, sim_sbert):
 
 # ── load data ──────────────────────────────────────────────────────────────────
 
-def load_and_align():
+def load_all_views():
+    """Load and align all three views by track ID."""
     print("Loading embeddings ...")
-    openl3_emb = np.load(OPENL3_EMB).astype(np.float32)
-    openl3_ids = np.array([int(x) for x in np.load(OPENL3_IDS)])
 
-    sbert_emb  = np.load(SBERT_EMB).astype(np.float32)
-    sbert_ids  = np.load(SBERT_IDS).astype(int)
+    views = {}
 
-    # align by track ID
-    common_ids = sorted(set(openl3_ids) & set(sbert_ids))
-    print(f"  Common tracks: {len(common_ids)}")
+    # Load OpenL3
+    if OPENL3_EMB.exists() and OPENL3_IDS.exists():
+        views["OpenL3"] = {
+            "emb": np.load(OPENL3_EMB).astype(np.float32),
+            "ids": np.array([int(x) for x in np.load(OPENL3_IDS)])
+        }
 
-    o_idx = {tid: i for i, tid in enumerate(openl3_ids)}
-    s_idx = {tid: i for i, tid in enumerate(sbert_ids)}
+    # Load SBERT
+    if SBERT_EMB.exists() and SBERT_IDS.exists():
+        views["SBERT"] = {
+            "emb": np.load(SBERT_EMB).astype(np.float32),
+            "ids": np.load(SBERT_IDS).astype(int)
+        }
 
-    order    = np.array(common_ids)
-    o_rows   = np.array([o_idx[t] for t in order])
-    s_rows   = np.array([s_idx[t] for t in order])
+    # Load CLAP
+    if CLAP_EMB.exists() and CLAP_IDS.exists():
+        views["CLAP"] = {
+            "emb": np.load(CLAP_EMB).astype(np.float32),
+            "ids": np.load(CLAP_IDS).astype(int)
+        }
 
-    openl3_aligned = openl3_emb[o_rows]
-    sbert_aligned  = sbert_emb[s_rows]
+    print(f"  Loaded {len(views)} views: {list(views.keys())}")
 
-    return openl3_aligned, sbert_aligned, order
+    # Align all views by common track IDs
+    all_ids = set(views[list(views.keys())[0]]["ids"])
+    for view_name, data in views.items():
+        all_ids &= set(data["ids"])
+
+    common_ids = sorted(list(all_ids))
+    print(f"  Common tracks across all views: {len(common_ids)}")
+
+    # Align each view
+    aligned = {}
+    for view_name, data in views.items():
+        id_map = {tid: i for i, tid in enumerate(data["ids"])}
+        indices = np.array([id_map[t] for t in common_ids])
+        aligned[view_name] = data["emb"][indices]
+
+    return aligned, np.array(common_ids)
 
 
 def load_genres(track_ids):
@@ -138,38 +157,39 @@ def load_genres(track_ids):
 
 # ── analysis ───────────────────────────────────────────────────────────────────
 
-def run_overlap_analysis(openl3, sbert):
+def run_overlap_analysis(emb_a, emb_b):
+    """Run overlap analysis between two embeddings. Returns metrics."""
     print("\n[1] Computing similarity matrices ...")
-    sim_o = cosine_sim_matrix(openl3, openl3)   # (N, N)
-    sim_s = cosine_sim_matrix(sbert,  sbert)    # (N, N)
+    sim_a = cosine_sim_matrix(emb_a, emb_a)   # (N, N)
+    sim_b = cosine_sim_matrix(emb_b, emb_b)   # (N, N)
 
     K_MAX = max(K_VALUES)
-    print(f"[2] Computing top-{K_MAX} neighbours for each modality ...")
-    nn_o = top_k_neighbours(sim_o, K_MAX, exclude_self=True)
-    nn_s = top_k_neighbours(sim_s, K_MAX, exclude_self=True)
+    print(f"[2] Computing top-{K_MAX} neighbours ...")
+    nn_a = top_k_neighbours(sim_a, K_MAX, exclude_self=True)
+    nn_b = top_k_neighbours(sim_b, K_MAX, exclude_self=True)
 
     print("[3] Overlap@k ...")
     overlap = {}
     for k in K_VALUES:
-        ov = overlap_at_k(nn_o, nn_s, k)
+        ov = overlap_at_k(nn_a, nn_b, k)
         overlap[f"overlap_at_{k}"] = round(ov, 4)
         print(f"    Overlap@{k:>2d}: {ov:.4f}  ({ov*100:.1f}%)")
 
     print("[4] Per-track Spearman rank correlation ...")
-    rhos = rank_correlation_per_track(sim_o, sim_s)
+    rhos = rank_correlation_per_track(sim_a, sim_b)
     mean_rho = float(np.mean(rhos))
     std_rho  = float(np.std(rhos))
     print(f"    Mean Spearman ρ: {mean_rho:.4f}  (σ={std_rho:.4f})")
 
     results = {
-        "n_tracks": len(openl3),
+        "n_tracks": len(emb_a),
         "k_values": K_VALUES,
         **overlap,
         "mean_spearman_rho": round(mean_rho, 4),
         "std_spearman_rho":  round(std_rho, 4),
         "pct_positive_rho":  round(float((rhos > 0).mean() * 100), 2),
     }
-    return results, rhos, nn_o, nn_s, sim_o, sim_s
+    return results, rhos, nn_a, nn_b, sim_a, sim_b
 
 
 # ── plotting ───────────────────────────────────────────────────────────────────
@@ -201,12 +221,12 @@ def _apply_style():
     })
 
 
-def plot_rank_correlation(rhos, results, genres, unique_genres):
+def plot_rank_correlation(rhos, results, genres, unique_genres, view_a, view_b):
     _apply_style()
     fig, axes = plt.subplots(1, 3, figsize=(16, 5))
     fig.patch.set_facecolor(PALETTE["bg"])
     fig.suptitle(
-        "OpenL3 (Audio)  vs  SBERT (Text)  —  Rank Correlation Analysis",
+        f"{view_a}  vs  {view_b}  —  Rank Correlation Analysis",
         fontsize=14, color=PALETTE["text"], y=1.02
     )
 
@@ -269,8 +289,9 @@ def plot_rank_correlation(rhos, results, genres, unique_genres):
     ax.grid(True, axis="x", alpha=0.3)
 
     plt.tight_layout()
-    fig.savefig(OUT_CORR, dpi=150, bbox_inches="tight", facecolor=PALETTE["bg"])
-    print(f"  Saved: {OUT_CORR}")
+    out_path = PROC / f"{view_a.lower()}_{view_b.lower()}_rank_corr.png"
+    fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor=PALETTE["bg"])
+    print(f"  Saved: {out_path}")
     plt.close()
 
 
@@ -319,12 +340,8 @@ def plot_tsne(openl3, sbert, genres, unique_genres):
     plt.close()
 
 
-def plot_genre_heatmap(nn_o, nn_s, genres, unique_genres, k=10):
-    """
-    Genre-level agreement heatmap:
-    For genre G, what fraction of its OpenL3 top-k neighbours share genre H?
-    Do the same for SBERT. Plot side-by-side.
-    """
+def plot_genre_heatmap(nn_a, nn_b, genres, unique_genres, view_a, view_b, k=10):
+    """Genre-level agreement heatmap for two views."""
     _apply_style()
     genres_arr = np.array(genres)
 
@@ -340,30 +357,28 @@ def plot_genre_heatmap(nn_o, nn_s, genres, unique_genres, k=10):
             for j in row[:k]:
                 mat[g2i[src_g], g2i[genres_arr[j]]] += 1
 
-        # normalise rows
         for r in range(n_g):
             if counts[r] > 0:
                 mat[r] /= (counts[r] * k)
         return mat
 
-    mat_o = genre_matrix(nn_o, k, unique_genres)
-    mat_s = genre_matrix(nn_s, k, unique_genres)
-    diff  = mat_s - mat_o   # SBERT minus OpenL3
+    mat_a = genre_matrix(nn_a, k, unique_genres)
+    mat_b = genre_matrix(nn_b, k, unique_genres)
+    diff  = mat_b - mat_a
 
     fig, axes = plt.subplots(1, 3, figsize=(20, 7))
     fig.patch.set_facecolor(PALETTE["bg"])
-    fig.suptitle(f"Genre Agreement Heatmap @ k={k}  (row = source genre, col = neighbour genre)",
+    fig.suptitle(f"{view_a} vs {view_b} — Genre Agreement Heatmap @ k={k}",
                  fontsize=13, color=PALETTE["text"], y=1.01)
 
     labels = [g[:10] for g in unique_genres]
-
     sns_kw = dict(annot=True, fmt=".2f", linewidths=0.3, linecolor=PALETTE["bg"],
                   xticklabels=labels, yticklabels=labels, annot_kws={"size": 7})
 
     for ax, mat, title, cmap in zip(
         axes,
-        [mat_o, mat_s, diff],
-        ["OpenL3 (Audio)", "SBERT (Text)", "ΔSBERT − OpenL3"],
+        [mat_a, mat_b, diff],
+        [view_a, view_b, f"Δ{view_b} − {view_a}"],
         ["Blues", "Purples", "RdBu_r"],
     ):
         sns.heatmap(mat, ax=ax, cmap=cmap, vmin=(None if "Δ" not in title else -0.3),
@@ -373,8 +388,9 @@ def plot_genre_heatmap(nn_o, nn_s, genres, unique_genres, k=10):
         ax.set_facecolor(PALETTE["panel"])
 
     plt.tight_layout()
-    fig.savefig(OUT_HEATMAP, dpi=150, bbox_inches="tight", facecolor=PALETTE["bg"])
-    print(f"  Saved: {OUT_HEATMAP}")
+    out_path = PROC / f"{view_a.lower()}_{view_b.lower()}_genre_heatmap.png"
+    fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor=PALETTE["bg"])
+    print(f"  Saved: {out_path}")
     plt.close()
 
 
@@ -382,38 +398,64 @@ def plot_genre_heatmap(nn_o, nn_s, genres, unique_genres, k=10):
 
 def main():
     print("=" * 60)
-    print("  OpenL3 vs SBERT — Overlap & Rank Correlation Analysis")
+    print("  Cross-View Overlap Analysis (All Pairs)")
     print("=" * 60)
 
-    openl3, sbert, track_ids = load_and_align()
+    views, track_ids = load_all_views()
+
+    if len(views) < 2:
+        print("ERROR: Need at least 2 views to compare")
+        sys.exit(1)
 
     genres = load_genres(track_ids.tolist())
     unique_genres = sorted(set(genres))
-    print(f"  Genres found: {unique_genres}")
+    print(f"  Genres found: {unique_genres}\n")
 
-    results, rhos, nn_o, nn_s, sim_o, sim_s = run_overlap_analysis(openl3, sbert)
+    # Generate all view pairs
+    view_names = sorted(views.keys())
+    pairs = []
+    for i, va in enumerate(view_names):
+        for vb in view_names[i+1:]:
+            pairs.append((va, vb))
 
-    # save JSON
+    all_results = {}
+
+    # Analyze each pair
+    for view_a, view_b in pairs:
+        print(f"\n{'=' * 60}")
+        print(f"  {view_a} vs {view_b}")
+        print('=' * 60)
+
+        results, rhos, nn_a, nn_b, sim_a, sim_b = run_overlap_analysis(
+            views[view_a], views[view_b]
+        )
+
+        # Store results
+        pair_key = f"{view_a.lower()}_{view_b.lower()}"
+        all_results[pair_key] = results
+
+        # Plots
+        print(f"\n[Plotting] rank correlation figure ...")
+        plot_rank_correlation(rhos, results, genres, unique_genres, view_a, view_b)
+
+        print(f"[Plotting] genre agreement heatmap ...")
+        plot_genre_heatmap(nn_a, nn_b, genres, unique_genres, view_a, view_b, k=10)
+
+    # Save combined JSON
     with open(OUT_JSON, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"\n  Results saved: {OUT_JSON}")
+        json.dump(all_results, f, indent=2)
+    print(f"\n\nAll results saved: {OUT_JSON}")
 
-    # plots
-    print("\n[Plotting] rank correlation figure ...")
-    plot_rank_correlation(rhos, results, genres, unique_genres)
-
-    print("[Plotting] genre agreement heatmap ...")
-    plot_genre_heatmap(nn_o, nn_s, genres, unique_genres, k=10)
-
-    print("[Plotting] t-SNE alignment ...")
-    plot_tsne(openl3, sbert, genres, unique_genres)
-
-    print("\n" + "=" * 60)
-    print("  SUMMARY")
-    print("=" * 60)
-    for k, v in results.items():
-        print(f"  {k:<30} {v}")
-    print("=" * 60)
+    # Print summary
+    print("\n" + "=" * 70)
+    print("  SUMMARY — All View Pairs")
+    print("=" * 70)
+    for pair_key, results in all_results.items():
+        print(f"\n{pair_key.replace('_', ' ').upper()}:")
+        print(f"  Mean Spearman ρ:  {results['mean_spearman_rho']:.4f}")
+        print(f"  Overlap@10:       {results['overlap_at_10']*100:.1f}%")
+        print(f"  Overlap@20:       {results['overlap_at_20']*100:.1f}%")
+    print("=" * 70)
     print("Done.")
 
 
