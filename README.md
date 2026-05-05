@@ -147,9 +147,52 @@ SBERT (Sentence-BERT) is a siamese network fine-tuned on NLI/paraphrase data to 
 
 ![SBERT: Genre Centroid Cosine Similarity](data/processed/viz/heatmap_sbert.png)
 
-### Echo Nest Evaluation (Independent Ground Truth)
+### Echo Nest Visualization
 
-To evaluate retrieval quality without genre leakage, we measured whether each view's nearest neighbors are similar in Echo Nest audio features (danceability, energy, valence, tempo, acousticness, instrumentalness, liveness, speechiness) — features no model saw during training. All 8 features were standardised to z-scores before computing Euclidean distance.
+![Retrieval Quality: Echo Nest Audio Feature Similarity](data/processed/lyrics_enriched/echonest_evaluation.png)
+
+## Evaluation Methodology
+
+We use three complementary evaluation strategies to assess retrieval quality without genre leakage:
+
+### 1. Genre Retrieval Accuracy
+
+**Metric:** Top-1 genre accuracy — for each query track, retrieve its nearest neighbor (by cosine similarity) and check if they share the same `genre_top` label.
+
+**Protocol:**
+1. L2-normalize all embeddings
+2. Compute full similarity matrix (`emb @ emb.T`)
+3. Mask the diagonal (self-similarity)
+4. For each query, find the nearest neighbor (argmax)
+5. Compare genre labels and report accuracy
+
+**Results on 2,000-track subset (500 random queries):**
+
+| Model | Top-1 Genre Accuracy |
+|-------|---------------------|
+| CLAP (audio) | 0.52 |
+| CLAP (text) | 0.48 |
+| OpenL3 | 0.41 |
+| SBERT (lyrics) | 0.38 |
+
+CLAP performs best because its contrastive training explicitly aligns audio with semantic descriptors that correlate with genre. SBERT scores lowest because genre labels were intentionally removed from input to prevent data leakage.
+
+**Limitations:** Genre is a coarse label; two acoustically similar tracks can differ in genre. This metric rewards genre clustering rather than nuanced similarity.
+
+---
+
+### 2. Echo Nest Feature Distance (Independent Ground Truth)
+
+To evaluate without genre leakage, we measure if each view's nearest neighbors are similar in **Echo Nest audio features** — features the models never saw during training:
+- Danceability, Energy, Valence, Tempo, Acousticness, Instrumentalness, Liveness, Speechiness
+
+All features are z-score standardized before computing Euclidean distance.
+
+**Protocol:**
+1. For each model, retrieve top-5 nearest neighbors per query
+2. Compute average Euclidean distance in Echo Nest feature space
+3. Compare against random baseline (average distance between random track pairs)
+4. Report statistical significance via paired t-test
 
 | Method | Avg Distance | vs Random | p-value |
 |---|---|---|---|
@@ -158,26 +201,55 @@ To evaluate retrieval quality without genre leakage, we measured whether each vi
 | Fused (SBERT+OpenL3) | 3.22 | -15.1% | 1.4e-08 |
 | **OpenL3 (Audio)** | **2.87** | **-24.3%** | **1.8e-21** |
 
-OpenL3 performs best because both it and Echo Nest operate in the acoustic domain. Fused embeddings outperform either modality alone, confirming that text and audio provide complementary signals. All differences are statistically significant (paired t-test, N=294).
+OpenL3 performs best because both it and Echo Nest operate in the acoustic domain. Fused embeddings outperform any single view, confirming text and audio provide complementary signals. All differences are statistically significant (N=294 tracks with both embeddings and Echo Nest features).
 
-![Retrieval Quality: Echo Nest Audio Feature Similarity](data/processed/lyrics_enriched/echonest_evaluation.png)
+**Caveat:** The 294-track overlap is not uniformly distributed across genres (Folk and Hip-Hop over-represented at ~21% each; Experimental under-represented at 1.4%).
 
-**Caveat**: The 294-track Echo Nest overlap is not uniformly distributed across genres (Folk and Hip-Hop are over-represented at ~21% each vs. 12.5% expected; Experimental is under-represented at 1.4%).
+---
 
+### 3. Cross-View Overlap Analysis
+
+**Metric:** For each track, retrieve top-20 neighbors in each view and compute:
+- **Jaccard overlap:** |A ∩ B| / |A ∪ B|
+- **Spearman rank correlation:** agreement between ranked lists
+
+**Finding:** SBERT and OpenL3 share only **5.6% overlap** (Spearman ρ = -0.77), confirming the views are highly complementary and fusion can combine independent signals.
+
+---
+
+### Data Leakage Prevention
+
+**Critical constraint:** Genre labels are never part of model input; used only for evaluation.
+
+Leakage vectors identified and blocked:
+1. Direct genre in metadata string — removed from SBERT input
+2. Genre-like tags — 48.8% of tags contained words like "rock", "electronic" — filtered via `strip_genre_from_tags()`
+3. Artist names as genre proxy — retained as legitimate feature but acknowledged as soft leakage
+
+For full reproduction steps, see [docs/EVALUATION.md](docs/EVALUATION.md).
+
+---
 
 ## Team Contributions
 
-### Acoustic Similarity — Wenny
-Generated OpenL3 embeddings (512-d) for audio-to-audio retrieval. Compared clustering with CLAP to understand where acoustic and semantic views agree/disagree.
+### Overall Architecture & Web Demo — Issac
+Introduced the project and designed the overall pipeline. Implemented multi-view fusion strategy (vector-level early fusion and rank-level RRF), built the interactive Flask web application with Vanilla JS front-end. Conducted the live demo showcasing the retrieval system.
 
-### Lyrics & Semantic Search — Sid & Issac
-Generated SBERT embeddings from metadata + Genius lyrics. Identified and fixed genre leakage in input strings and tags. Representation analysis: semantic robustness, lexical bias, truncation impact. (See `reports/sid_issac_lyrics_report.md`).
+### Semantic Search with SBERT & Lyrics — Sid
+Generated SBERT embeddings (384-d) from track metadata and lyrics fetched via Genius API. Identified and fixed critical genre leakage in metadata strings (48.8% of tags contained genre words). Conducted semantic robustness analysis including lexical bias and truncation impact studies. (See `reports/sid_issac_lyrics_report.md`).
 
-### Evaluation & Fusion — Jiayi
-Built evaluation framework (P@K, Recall@K, MAP, NDCG) and fusion methods (weighted sum, reciprocal rank fusion, learned reranker).
+### Acoustic Similarity with OpenL3 — Wenny
+Generated OpenL3 embeddings (512-d) for audio-to-audio retrieval. Analyzed clustering patterns and cross-view complementarity by comparing with CLAP and SBERT. Investigated mean-centering effects on cosine similarity metrics.
 
-### Fine-tuning & Deep Analysis — Helena
-Fine-tuned CLAP on FMA with contrastive learning. Conducted before/after comparison of embeddings, Echo Nest feature correlation, and failure analysis.
+### CLAP Embeddings & Results — Jiayi
+Generated and fine-tuned CLAP embeddings (512-d) on the FMA dataset using contrastive learning. Analyzed genre structure in embedding space via t-SNE, PCA, and genre centroid similarity heatmaps. Conducted text-to-music retrieval demonstrations showing natural language query capabilities.
+
+### Audio-to-Spectrograph Analysis — MJ
+Conducted exploratory analysis on converting audio waveforms to spectrograms as an alternative representation. Applied analysis to a smaller sample due to computational constraints. Documented findings and potential fusion opportunities with embedding-based approaches.
+
+### Evaluation Framework — Yunchu (Helena)
+Designed and implemented the three-layer evaluation methodology: Top-1 genre accuracy, Echo Nest feature distance analysis, and cross-view overlap assessment. Ensured data leakage prevention across all evaluation pipelines and conducted comprehensive results analysis.
+
 
 ## Directory Structure
 
@@ -188,44 +260,79 @@ Fine-tuned CLAP on FMA with contrastive learning. Conducted before/after compari
 │   └── processed/               # Embeddings, FAISS indices, visualisations
 │       └── lyrics_enriched/     # Genre-free SBERT + fused embeddings
 ├── docs/                        # Project documentation and guides
-├── evaluation/                  # Nearest-neighbor genre-consistency tests
+│   ├── EVALUATION.md            # Detailed evaluation methodology
+│   ├── CLAP.md                  # CLAP model documentation
+│   ├── SBERT.md                 # SBERT model documentation
+│   ├── OpenL3.md                # OpenL3 model documentation
+│   ├── API.md                   # REST API reference
+│   ├── DEVELOPMENT.md           # Development guide
+│   └── neural_reranking.md
+├── evaluation/                  # Evaluation scripts and results
+│   ├── evaluate_genre_retrieval.py      # Genre accuracy evaluation
+│   ├── compare_mean_center.py           # Mean-centering comparison
+│   ├── results.md                       # Evaluation results summary
+│   └── EXPERIMENT_RESULTS.md
+├── forMj/                       # Audio spectrogram exploration
+│   ├── generate_spectrogram_embeddings.py
+│   ├── spectrogram.py
+│   └── README.md
 ├── notebooks/
-│   ├── 01_eda.ipynb                       # Dataset exploration
-│   ├── 02_clap_retrieval_demo.ipynb       # Text-to-music search demo
-│   ├── 03_embedding_visualisation.ipynb   # t-SNE, PCA, genre heatmaps
-│   ├── 05_clap_sbert_overlap.ipynb        # Cross-view comparison
-│   ├── 06_echonest_exploration.ipynb      # Echo Nest feature analysis
-│   ├── 07_sbert_analysis.ipynb            # SBERT representation analysis
-│   └── 08_semantic_search_demo.ipynb      # SBERT query interface
+│   ├── 01_eda.ipynb                     # Dataset exploration
+│   ├── 02_clap_retrieval_demo.ipynb     # Text-to-music search demo
+│   ├── 03_embedding_visualisation.ipynb # t-SNE, PCA, genre heatmaps
+│   ├── 05_clap_sbert_overlap.ipynb      # Cross-view comparison
+│   ├── 06_echonest_exploration.ipynb    # Echo Nest feature analysis
+│   ├── 07_sbert_analysis.ipynb          # SBERT representation analysis
+│   └── 08_semantic_search_demo.ipynb    # SBERT query interface
 ├── reports/                     # Presentations, writeups, and final reports
+│   ├── sid_issac_lyrics_report.md       # SBERT & lyrics analysis report
+│   └── EXPERIMENT_RESULTS.md
 ├── scripts/
-│   ├── download_fma.py                    # Download FMA dataset
-│   ├── audit_metadata.py                  # Cross-reference metadata vs audio
-│   ├── clap_embeddings.py                 # CLAP audio & text embedding generator (Standalone pipeline)
-│   ├── generate_clap_embeddings.py        # CLAP embedding pipeline (CLI)
-│   ├── text_to_text_SBERT_FMA_GENIUS_2.py # SBERT metadata & lyrics embeddings (Standalone pipeline)
-│   ├── generate_sbert_embeddings.py       # SBERT embedding pipeline
-│   ├── generate_fused_embeddings.py       # Lyrics-enriched SBERT + OpenL3 fusion
-│   ├── build_faiss_index.py               # Build FAISS indices
-│   ├── encode_2000_tracks.py              # Encode 2,000-track subset
-│   ├── analyze_sbert_robustness.py        # Representation robustness tests
-│   └── openl3_vs_sbert_overlap.py         # Cross-view overlap analysis
+│   ├── download_fma.py                           # Download FMA dataset
+│   ├── audit_metadata.py                        # Cross-reference metadata vs audio
+│   ├── generate_clap_embeddings.py              # CLAP embedding generator
+│   ├── generate_sbert_embeddings.py             # SBERT embedding generator
+│   ├── generate_spectrogram_embeddings.py       # Spectrogram embedding generator
+│   ├── generate_fused_embeddings.py             # Multi-view fusion embeddings
+│   ├── generate_pipeline_visualizations.py      # Generate t-SNE, PCA, heatmaps
+│   ├── build_faiss_index.py                     # Build FAISS indices
+│   ├── build_sbert_index.py                     # Build SBERT-specific FAISS index
+│   ├── encode_2000_tracks.py                    # Encode 2,000-track canonical subset
+│   ├── extract_2000_metadata.py                 # Extract metadata for 2,000 tracks
+│   ├── verify_2000_tracks.py                    # Verify canonical subset integrity
+│   ├── analyze_sbert_robustness.py              # SBERT representation robustness
+│   ├── visualize_sbert.py                       # SBERT visualization utilities
+│   ├── visualize_robustness.py                  # Robustness analysis visualizations
+│   ├── compare_clap_sbert.py                    # Cross-view comparison analysis
+│   ├── openl3_vs_sbert_overlap.py               # Cross-view overlap metrics
+│   ├── clap_embeddings.py                       # CLAP standalone pipeline
+│   ├── text_to_text_SBERT_FMA_GENIUS_2.py       # SBERT standalone pipeline
+│   └── (Legacy standalonefiles — use scripts above)
 ├── src/
+│   ├── __init__.py
 │   ├── config.py                # Paths, constants, device selection
 │   ├── metadata.py              # FMA metadata loading and filtering
 │   ├── metadata_builder.py      # Text string construction (genre-free)
 │   ├── audio_utils.py           # Track path resolution
 │   ├── lyrics_fetcher.py        # Genius API lyrics fetcher
 │   ├── embeddings/
+│   │   ├── __init__.py
 │   │   ├── base.py              # Abstract EmbeddingGenerator interface
 │   │   ├── clap.py              # CLAP pipeline (batched, checkpointed)
-│   │   └── sbert.py             # Sentence-BERT pipeline
+│   │   ├── sbert.py             # Sentence-BERT pipeline
+│   │   └── spectrogram.py        # Spectrogram-based embedding
 │   └── indexing/
+│       ├── __init__.py
 │       └── faiss_index.py       # FAISS index wrapper (cosine + L2)
 ├── tests/                       # Pytest test suite
+│   ├── conftest.py
+│   ├── test_core.py
+│   └── __init__.py
 ├── .env                         # API keys (gitignored)
+├── .claude/
+│   └── settings.local.json      # Claude Code local settings
 ├── Dockerfile                   # Deployment container
-├── requirements.txt
+├── requirements.txt             # Python dependencies
 ├── app.py                       # Main Flask web application / demo
 └── README.md
 ```
