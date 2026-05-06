@@ -501,8 +501,14 @@
 <header>
   <h1>Multi-View Music Retrieval</h1>
   <div class="search-wrap">
-    <input type="text" id="searchInput" placeholder="Search title or artist" autocomplete="off">
+    <div style="display:flex; gap:8px; align-items:center;">
+      <input type="text" id="searchInput" placeholder="Search title, artist, or natural language..." autocomplete="off">
+      <button onclick="performSemanticSearch()" style="background:var(--clap); border:none; color:var(--clap-dark); font-size:9px; font-weight:700; padding:4px 8px; cursor:pointer; text-transform:uppercase; letter-spacing:0.05em; border-radius:2px;">Semantic</button>
+    </div>
     <div class="search-results" id="searchResults"></div>
+    <div style="font-size:9px; color:var(--text3); margin-top:6px; letter-spacing:0.02em;">
+      Press <b>Enter</b> for keyword search or click <b>Semantic</b> for CLAP vibe search.
+    </div>
   </div>
 </header>
 
@@ -607,34 +613,74 @@ let activeTab = "sbert";
 // ── Search ──────────────────────────────────────────────────────────────
 const searchInput = document.getElementById("searchInput");
 const searchResults = document.getElementById("searchResults");
-let searchTimeout;
+let searchTimeout = null;
 
 searchInput.addEventListener("input", () => {
-  clearTimeout(searchTimeout);
+  if (searchTimeout) clearTimeout(searchTimeout);
   const q = searchInput.value.trim();
   if (q.length < 2) { searchResults.classList.remove("show"); return; }
-  searchTimeout = setTimeout(async () => {
-    try {
-      const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
-      if (!r.ok) throw new Error(`Search failed (${r.status})`);
-      const data = await r.json();
-      if (!data.length) { searchResults.classList.remove("show"); return; }
-      searchResults.innerHTML = data.map(t => `
-        <div class="search-item" onclick="selectTrack(${t.track_id})">
-          <div>
-            <div class="title">${esc(t.title)}</div>
-            <div class="artist">${esc(t.artist)}</div>
-          </div>
-          ${genreBadge(t.genre)}
-        </div>
-      `).join("");
-      searchResults.classList.add("show");
-    } catch (err) {
-      console.error("Search error:", err);
-      searchResults.classList.remove("show");
-    }
-  }, 200);
+  searchTimeout = setTimeout(() => performKeywordSearch(q), 200);
 });
+
+searchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    if (searchTimeout) clearTimeout(searchTimeout);
+    const q = searchInput.value.trim();
+    if (q.length >= 2) performKeywordSearch(q);
+  }
+});
+
+async function performKeywordSearch(q) {
+  try {
+    const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+    if (!r.ok) throw new Error(`Search failed (${r.status})`);
+    const data = await r.json();
+    displaySearchResults(data);
+  } catch (err) {
+    console.error("Search error:", err);
+  }
+}
+
+async function performSemanticSearch() {
+  const q = searchInput.value.trim();
+  if (!q) return;
+  searchResults.innerHTML = '<div class="search-item"><div class="title">Encoding query...</div></div>';
+  searchResults.classList.add("show");
+  
+  try {
+    const r = await fetch(`/api/semantic_search?q=${encodeURIComponent(q)}`);
+    if (!r.ok) throw new Error(`Semantic search failed (${r.status})`);
+    const data = await r.json();
+    if (data.error) {
+      searchResults.innerHTML = `<div class="search-item"><div class="title" style="color:red">${esc(data.error)}</div></div>`;
+      return;
+    }
+    displaySearchResults(data, true);
+  } catch (err) {
+    console.error("Semantic search error:", err);
+    searchResults.innerHTML = '<div class="search-item"><div class="title" style="color:red">Server error. Check logs.</div></div>';
+  }
+}
+
+function displaySearchResults(data, isSemantic = false) {
+  if (!data.length) { 
+    searchResults.innerHTML = '<div class="search-item"><div class="title">No results found</div></div>';
+    searchResults.classList.add("show");
+    return; 
+  }
+  searchResults.innerHTML = data.map(t => `
+    <div class="search-item" onclick="selectTrack(${t.track_id})">
+      <div>
+        <div class="title">${esc(t.title)}</div>
+        <div class="artist">${esc(t.artist)}</div>
+        ${isSemantic ? `<div style="font-size:10px;color:var(--clap-dark);margin-top:2px;">Similarity: ${t.score.toFixed(3)}</div>` : ''}
+      </div>
+      ${genreBadge(t.genre)}
+    </div>
+  `).join("");
+  searchResults.classList.add("show");
+}
+
 document.addEventListener("click", e => {
   if (!e.target.closest(".search-wrap")) searchResults.classList.remove("show");
 });
@@ -720,6 +766,7 @@ function selectRec(idx) {
 
   // Score readout
   const vs = rec.view_scores || {};
+  const gs = rec.genre_scores || {};
   document.getElementById("scoreReadout").innerHTML = [
     { key: "sbert",  label: "SBERT",  color: "var(--sbert-dark)" },
     { key: "openl3", label: "OpenL3", color: "var(--openl3-dark)" },
@@ -727,7 +774,9 @@ function selectRec(idx) {
   ].map(v => `
     <div class="score-readout-item">
       <div class="score-readout-value" style="color:${v.color}">${(vs[v.key] || 0).toFixed(3)}</div>
-      <div class="score-readout-label">${v.label}</div>
+      <div class="score-readout-label">${v.label} Sim</div>
+      <div class="score-readout-value" style="font-size:12px;margin-top:4px;color:var(--text2)">${(gs[v.key] || 0).toFixed(3)}</div>
+      <div class="score-readout-label" style="font-size:8px">Genre Score</div>
     </div>
   `).join("");
 
@@ -858,6 +907,7 @@ function renderModelTab() {
           <div class="info">
             <div class="title">${esc(r.title)}</div>
             <div class="artist">${esc(r.artist)}</div>
+            <div style="font-size:9px;color:var(--text3);margin-top:2px;">Genre Score: ${r.genre_score.toFixed(3)}</div>
           </div>
           <span class="score">${r.score.toFixed(3)}</span>
         </li>

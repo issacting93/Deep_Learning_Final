@@ -13,14 +13,22 @@ Then open: http://localhost:5001
 import logging
 import sys
 import os
+import json
 
+# Set environment variables BEFORE importing torch/transformers to prevent macOS ARM mutex deadlocks
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PROJECT_ROOT)
 
 import numpy as np
 import pandas as pd
+import torch
+import subprocess
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +37,41 @@ logger = logging.getLogger(__name__)
 from src.config import PROCESSED_DIR, FMA_SMALL_DIR, RRF_K
 from src.metadata import load_tracks, get_small_subset_ids
 from src.audio_utils import get_audio_path
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Semantic search helpers
+# ─────────────────────────────────────────────────────────────────────────────
+def run_semantic_search_process(query):
+    """Run CLAP in a separate process to avoid macOS mutex deadlocks."""
+    try:
+        script_path = os.path.join(PROJECT_ROOT, "scripts", "semantic_search_tool.py")
+        # Use venv python to ensure CLAP and other deps are available
+        venv_python = os.path.join(PROJECT_ROOT, "venv", "bin", "python")
+        python_exe = venv_python if os.path.exists(venv_python) else sys.executable
+        cmd = [python_exe, script_path, query]
+        
+        # Capture stderr to debug potential import or file issues
+        result = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True, 
+            check=True, 
+            cwd=PROJECT_ROOT,
+            env={**os.environ, "PYTHONPATH": PROJECT_ROOT}
+        )
+        # Clean output: find the first '[' to start parsing JSON
+        stdout = result.stdout.strip()
+        if "[" in stdout:
+            stdout = stdout[stdout.index("["):]
+        return json.loads(stdout)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Semantic search process failed (exit {e.returncode}):")
+        logger.error(f"STDOUT: {e.stdout}")
+        logger.error(f"STDERR: {e.stderr}")
+        return None
+    except Exception as e:
+        logger.error(f"Semantic search process failed: {e}")
+        return None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Load metadata
@@ -121,12 +164,39 @@ GENRE_COLOURS = {
     "Rock":         "#f97316",
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Compute Genre Centroids
+# ─────────────────────────────────────────────────────────────────────────────
+logger.info("Computing genre centroids...")
+GENRE_CENTROIDS = {}
+for vk, v in VIEWS.items():
+    GENRE_CENTROIDS[vk] = {}
+    for g in GENRE_COLOURS.keys():
+        # Get all tracks belonging to this genre in this view
+        g_ids = [tid for tid, meta in TRACK_META.items() if meta["genre"] == g and tid in v["id_to_idx"]]
+        if g_ids:
+            indices = [v["id_to_idx"][tid] for tid in g_ids]
+            centroid = v["embeddings"][indices].mean(axis=0)
+            # L2-normalize centroid
+            centroid = centroid / (np.linalg.norm(centroid) + 1e-8)
+            GENRE_CENTROIDS[vk][g] = centroid
+
 logger.info("Ready.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Recommendation engine
 # ─────────────────────────────────────────────────────────────────────────────
+def get_genre_score(tid, genre, view_key):
+    """Return similarity of track tid to the centroid of the given genre."""
+    view = VIEWS[view_key]
+    if tid not in view["id_to_idx"] or genre not in GENRE_CENTROIDS[view_key]:
+        return 0.0
+    emb = view["embeddings"][view["id_to_idx"][tid]]
+    centroid = GENRE_CENTROIDS[view_key][genre]
+    return float(emb @ centroid)
+
+
 def recommend(track_id, view_key, k=8):
     view = VIEWS[view_key]
     if track_id not in view["id_to_idx"]:
@@ -145,6 +215,8 @@ def recommend(track_id, view_key, k=8):
             continue
         meta = get_meta(tid)
         meta["score"] = round(float(scores[i]), 4)
+        # Add genre score (similarity to centroid)
+        meta["genre_score"] = round(get_genre_score(tid, meta["genre"], view_key), 4)
         results.append(meta)
         if len(results) >= k:
             break
@@ -186,6 +258,11 @@ def fused_recommend(track_id, k=8, weights=None):
             vk: round(cosine_score(track_id, tid, vk), 4)
             for vk in VIEWS
         }
+        # Add per-model genre scores
+        meta["genre_scores"] = {
+            vk: round(get_genre_score(tid, meta["genre"], vk), 4)
+            for vk in VIEWS
+        }
         results.append(meta)
         if len(results) >= k:
             break
@@ -214,6 +291,31 @@ def search():
             results.append(t)
         if len(results) >= 20:
             break
+    return jsonify(results)
+
+
+@app.route("/api/semantic_search")
+def semantic_search():
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify([])
+
+    logger.info(f"Semantic search (process isolation): '{q}'")
+    
+    # Run in separate process to avoid mutex deadlock
+    results_raw = run_semantic_search_process(q)
+    
+    if results_raw is None:
+        return jsonify({"error": "Semantic search process failed. This is likely due to environment constraints on macOS."}), 500
+    
+    # Map back to full metadata
+    results = []
+    for r in results_raw:
+        tid = r["track_id"]
+        meta = get_meta(tid)
+        meta["score"] = r["score"]
+        results.append(meta)
+        
     return jsonify(results)
 
 

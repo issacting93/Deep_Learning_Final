@@ -3,32 +3,32 @@
     "n_tracks": 250,
     "mean_distance": 3.2408,
     "std_distance": 1.1737,
-    "improvement_pct": 15.3,
-    "p_value": "3.09e-07"
+    "improvement_pct": 14.8,
+    "p_value": "1.91e-06"
   },
   "openl3": {
     "n_tracks": 213,
     "mean_distance": 2.8869,
     "std_distance": 0.9577,
-    "improvement_pct": 24.6,
-    "p_value": "5.08e-19"
+    "improvement_pct": 24.1,
+    "p_value": "4.03e-18"
   },
   "clap": {
     "n_tracks": 189,
     "mean_distance": 2.886,
     "std_distance": 1.0365,
-    "improvement_pct": 24.6,
-    "p_value": "8.13e-19"
+    "improvement_pct": 24.1,
+    "p_value": "5.48e-17"
   },
   "rrf": {
     "n_tracks": 236,
     "mean_distance": 2.8853,
     "std_distance": 1.0393,
-    "improvement_pct": 24.6,
-    "p_value": "1.77e-18"
+    "improvement_pct": 24.2,
+    "p_value": "8.73e-18"
   },
   "random_baseline": {
     "n_tracks": 294,
-    "mean_distance": 3.8265
+    "mean_distance": 3.8041
   }
 }
