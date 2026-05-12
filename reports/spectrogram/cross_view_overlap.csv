@@ -1,0 +1,4 @@
+vs,top20_overlap,spearman
+OpenL3,0.1326,0.4560
+CLAP,0.0969,0.2621
+SBERT,0.0392,0.0669

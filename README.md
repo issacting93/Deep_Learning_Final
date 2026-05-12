@@ -515,18 +515,16 @@ Produces three metrics: genre accuracy, Echo Nest feature distance, cross-view o
 │   ├── CLAP.md                  # CLAP model documentation
 │   ├── SBERT.md                 # SBERT model documentation
 │   ├── OpenL3.md                # OpenL3 model documentation
+│   ├── SPECTROGRAM.md           # Spectrogram view documentation
 │   ├── API.md                   # REST API reference
 │   ├── DEVELOPMENT.md           # Development guide
+│   ├── demo_spectrogram.mp4     # Spectrogram demo video
 │   └── neural_reranking.md
 ├── evaluation/                  # Evaluation scripts and results
 │   ├── evaluate_genre_retrieval.py      # Genre accuracy evaluation
 │   ├── compare_mean_center.py           # Mean-centering comparison
 │   ├── results.md                       # Evaluation results summary
 │   └── EXPERIMENT_RESULTS.md
-├── forMj/                       # Audio spectrogram exploration
-│   ├── generate_spectrogram_embeddings.py
-│   ├── spectrogram.py
-│   └── README.md
 ├── notebooks/
 │   ├── 01_eda.ipynb                     # Dataset exploration
 │   ├── 02_clap_retrieval_demo.ipynb     # Text-to-music search demo
@@ -537,6 +535,7 @@ Produces three metrics: genre accuracy, Echo Nest feature distance, cross-view o
 │   └── 08_semantic_search_demo.ipynb    # SBERT query interface
 ├── reports/                     # Presentations, writeups, and final reports
 │   ├── sid_issac_lyrics_report.md       # SBERT & lyrics analysis report
+│   ├── spectrogram/                     # Spectrogram slide visuals (per-genre, PCA, t-SNE)
 │   └── EXPERIMENT_RESULTS.md
 ├── scripts/
 │   ├── download_fma.py                           # Download FMA dataset
@@ -593,6 +592,7 @@ Produces three metrics: genre accuracy, Echo Nest feature distance, cross-view o
 - **[CLAP (View 1)](docs/CLAP.md)** — Contrastive Language-Audio Pretraining. Architecture, cross-modal retrieval, text-to-audio search, generation pipeline.
 - **[SBERT (View 2)](docs/SBERT.md)** — Sentence-BERT semantic search. Metadata/lyrics encoding, data leakage prevention, Genius API integration, robustness analysis.
 - **[OpenL3 (View 3)](docs/OpenL3.md)** — Acoustic similarity. Self-supervised audio embeddings, mean-centering rationale, cross-view complementarity analysis.
+- **[Spectrogram (Bonus)](docs/SPECTROGRAM.md)** — Audio-to-spectrogram via ResNet18. Pipeline, parameter tuning, backbone swap options.
 
 ### System Documentation
 
