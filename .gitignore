@@ -33,3 +33,6 @@ models/*.bin
 
 # Environment
 .env
+
+# Archived / legacy code
+_archive/
